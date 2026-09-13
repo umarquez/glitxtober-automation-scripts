@@ -1,86 +1,147 @@
 # Glitxtober Automation Scripts
 
-Automatizaciones para la producción y grabación de pantalla de Glitxtober.
+Automatizaciones para preparar y grabar los episodios de **Glitxtober 2026 — Código y Síntesis**.
 
-## Hammerspoon + Sonic Pi
+El objetivo del repositorio es convertir los snapshots editoriales de cada episodio en una secuencia reproducible para cámara: Hammerspoon controla el editor de Sonic Pi, escribe el código con timing seguro, ejecuta cada beat y mantiene un log de estado fuera de la pantalla grabada.
 
-El primer runner está en:
+## Arquitectura general
 
-`hammerspoon/episodes/ep01_codigo_sonido.lua`
+```mermaid
+flowchart LR
+  K[Hotkeys Hammerspoon] --> R[Runner del episodio]
+  R --> E[Motor Sonic Pi Runner]
+  E --> S[Editor de Sonic Pi]
+  S --> A[Audio / MIDI]
+  R --> C[Hammerspoon Console]
+  R -. opcional .-> M[Alert en monitor secundario]
+```
 
-Corresponde al Episodio 01 — **Código → sonido** y construye el código incrementalmente en Sonic Pi.
+Para los episodios que requieren código externo, la arquitectura futura añade VS Code:
 
-### Instalación sugerida
+```mermaid
+flowchart LR
+  H[Hammerspoon] --> V[VS Code]
+  V --> P[Python / bridge / extractor]
+  P -->|datos u OSC| S[Sonic Pi]
+  S --> A[Audio / MIDI]
+```
 
-Clona este repositorio dentro de `~/.hammerspoon/` y carga primero el router de estado y después el episodio desde `~/.hammerspoon/init.lua`:
+## Inventario por episodio
+
+| Ep. | Episodio | Estado | Automatización |
+| --- | --- | --- | --- |
+| 01 | Código → sonido | ✅ Sonic Pi | [`01-codigo-sonido/runner.lua`](hammerspoon/episodes/01-codigo-sonido/runner.lua) |
+| 02 | La máquina decide el ritmo | ✅ Sonic Pi | [`02-maquina-decide-ritmo/runner.lua`](hammerspoon/episodes/02-maquina-decide-ritmo/runner.lua) |
+| 03 | Controlando un sinte desde el código | ✅ Sonic Pi + MIDI hardware | [`03-controlando-sinte/runner.lua`](hammerspoon/episodes/03-controlando-sinte/runner.lua) |
+| 04 | Construye tu propio secuenciador | ✅ Sonic Pi | [`04-secuenciador/runner.lua`](hammerspoon/episodes/04-secuenciador/runner.lua) |
+| 05 | Ritmos euclidianos | ✅ Sonic Pi | [`05-ritmos-euclidianos/runner.lua`](hammerspoon/episodes/05-ritmos-euclidianos/runner.lua) |
+| 06 | Un sample, cien sonidos | ✅ Sonic Pi | [`06-un-sample-cien-sonidos/runner.lua`](hammerspoon/episodes/06-un-sample-cien-sonidos/runner.lua) |
+| 07 | La imagen se convierte en música | 🟡 TODO VS Code / Python | [`README`](hammerspoon/episodes/07-imagen-musica/README.md) |
+| 08 | Convierte tu trackpad en un instrumento | 🟡 TODO VS Code / Python + OSC | [`README`](hammerspoon/episodes/08-trackpad-instrumento/README.md) |
+| 09 | La computadora escucha y responde | 🟡 TODO VS Code / Python + audio + OSC | [`README`](hammerspoon/episodes/09-computadora-escucha-responde/README.md) |
+| 10 | Una máquina que hace música sola | ✅ Sonic Pi | [`10-maquina-musica-sola/runner.lua`](hammerspoon/episodes/10-maquina-musica-sola/runner.lua) |
+
+Cada episodio tiene su propio directorio y `README.md` con dependencias, arquitectura y beats/TODO correspondientes.
+
+## Estructura
+
+```text
+hammerspoon/
+├── glitx_status.lua
+├── init.lua.example
+├── lib/
+│   └── sonic_pi_runner.lua
+└── episodes/
+    ├── 01-codigo-sonido/
+    │   ├── README.md
+    │   └── runner.lua
+    ├── 02-maquina-decide-ritmo/
+    ├── 03-controlando-sinte/
+    ├── 04-secuenciador/
+    ├── 05-ritmos-euclidianos/
+    ├── 06-un-sample-cien-sonidos/
+    ├── 07-imagen-musica/
+    ├── 08-trackpad-instrumento/
+    ├── 09-computadora-escucha-responde/
+    └── 10-maquina-musica-sola/
+```
+
+## Instalación
+
+Clona el repositorio dentro de `~/.hammerspoon/`:
+
+```bash
+cd ~/.hammerspoon
+git clone https://github.com/umarquez/glitxtober-automation-scripts.git
+```
+
+Usa `hammerspoon/init.lua.example` como referencia para tu `~/.hammerspoon/init.lua`.
+
+Hammerspoon necesita permiso en **System Settings → Privacy & Security → Accessibility** para generar eventos de teclado.
+
+## Seleccionar episodio
+
+El `init.lua` carga un solo runner a la vez:
 
 ```lua
-local ROOT = os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts"
+GLITX_EPISODE = "04-secuenciador"
+```
 
+Cambia el valor, usa **Reload Config** en Hammerspoon y comienza la toma con:
+
+```text
+Ctrl + Alt + Cmd + R
+```
+
+## Mensajes de estado
+
+La **Hammerspoon Console siempre recibe los mensajes**. Las alertas sobre pantalla están deshabilitadas por defecto.
+
+```lua
 GLITX_STATUS_CONFIG = {
   showAlerts = false,
   alertScreen = "secondary",
   recordingAppName = "Sonic Pi",
 }
-
-dofile(ROOT .. "/hammerspoon/glitx_status.lua")
-dofile(ROOT .. "/hammerspoon/episodes/ep01_codigo_sonido.lua")
 ```
 
-Después usa **Reload Config** en Hammerspoon.
-
-Hammerspoon necesita permiso en **System Settings → Privacy & Security → Accessibility** para generar los eventos de teclado.
-
-### Mensajes de estado
-
-Los mensajes del runner se envían siempre a la **Hammerspoon Console**, por lo que no necesitan aparecer sobre la pantalla que estás grabando.
-
-Las alertas visuales están deshabilitadas por defecto:
-
-```lua
-GLITX_STATUS_CONFIG = {
-  showAlerts = false,
-}
-```
-
-Para activarlas en una pantalla secundaria:
+Para habilitar feedback visual en el monitor de control:
 
 ```lua
 GLITX_STATUS_CONFIG = {
   showAlerts = true,
   alertScreen = "secondary",
+  recordingAppName = "Sonic Pi",
 }
 ```
 
-El router intenta identificar la pantalla donde está Sonic Pi y usa otro monitor como pantalla de control. Si no encuentra una segunda pantalla, **no hace fallback a la pantalla de grabación**: conserva únicamente el mensaje en consola.
+Si no existe una segunda pantalla, el router no hace fallback sobre la pantalla de grabación.
 
-También puedes forzar una pantalla por nombre usando `hs.screen.find()`:
+## Controles comunes
 
-```lua
-GLITX_STATUS_CONFIG = {
-  showAlerts = true,
-  alertScreenName = "DELL U2720Q",
-}
-```
+| Hotkey | Acción |
+| --- | --- |
+| `Ctrl + Alt + Cmd + N` | Siguiente beat. |
+| `Ctrl + Alt + Cmd + R` | Stop doble, limpiar buffer y reiniciar toma. |
+| `Ctrl + Alt + Cmd + I` | Mostrar siguiente beat. |
+| `Ctrl + Alt + Cmd + X` | Cancelar y marcar la toma como desincronizada. |
+| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
 
-`hammerspoon/glitx_status.lua` intercepta los mensajes existentes del runner, los registra en consola y sólo dibuja una alerta si `showAlerts` es `true`.
+## Motor compartido y seguridad de escritura
 
-### Controles
+`hammerspoon/lib/sonic_pi_runner.lua` concentra el comportamiento común:
 
-- `Ctrl + Alt + Cmd + N`: siguiente beat de grabación.
-- `Ctrl + Alt + Cmd + R`: detener Sonic Pi, limpiar el buffer y reiniciar la toma.
-- `Ctrl + Alt + Cmd + I`: mostrar el siguiente beat.
-- `Ctrl + Alt + Cmd + X`: cancelar la automatización actual.
-- `Ctrl + Alt + Cmd + T`: prueba mínima de escritura.
+- escritura carácter por carácter;
+- `Return` largo y pausas adicionales después de `sample`, `do` y `end`;
+- separación explícita entre bloques `live_loop`;
+- navegación por líneas para ediciones incrementales;
+- `Tidy → espera → Run`;
+- doble Stop al reiniciar la toma;
+- validación del modelo antes de ejecutar;
+- `beatStartDelay` independiente de la duración de alertas.
 
-### Confiabilidad de saltos de línea
+Esto evita que activar o desactivar alerts cambie el timing de escritura.
 
-La versión actual usa una estrategia conservadora para evitar que Sonic Pi fusione instrucciones durante la escritura automática:
+## Fase VS Code
 
-- `Return` se mantiene durante 180 ms y la escritura espera entre 300–420 ms antes de continuar.
-- Las líneas que terminan en `do`/`end` y las líneas `sample ...` reciben una pausa adicional.
-- Los bloques `live_loop` de primer nivel se separan con **dos Returns**. Esto conserva la línea en blanco del código original y evita que un salto perdido pueda producir algo como `endlive_loop ...`.
-- Los fragmentos de batería se validan al cargar el script para comprobar que `sample` y `sleep` están en líneas separadas.
-- Antes de ejecutar cada beat se valida el modelo interno para detectar estructuras imposibles, como un `sample` y un `sleep` en la misma línea.
-
-Para una toma nueva, comienza siempre con `Ctrl + Alt + Cmd + R`.
+Los episodios 07, 08 y 09 quedan deliberadamente incompletos en esta etapa. Sus `README.md` documentan el código externo pendiente y la arquitectura esperada. Cuando esa fase comience, VS Code será el editor para Python y Hammerspoon orquestará el cambio entre VS Code y Sonic Pi.
