@@ -1,3 +1,10 @@
+-- Glitxtober 2026 — Episodio 02: La máquina decide el ritmo
+--
+-- Canonical source: ORIGINAL.md.
+-- Strategy: keep one 16-step live_loop and add probability rules inside the
+-- same clock. The audible pattern remains emergent; only the probability model
+-- is written explicitly.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")

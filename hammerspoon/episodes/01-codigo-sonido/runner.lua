@@ -1,3 +1,10 @@
+-- Glitxtober 2026 — Episodio 01: Código → sonido
+--
+-- Canonical source: ORIGINAL.md in this directory.
+-- Strategy: preserve the cumulative visual construction of the pilot. The
+-- runner starts from one note and progressively adds timing, live_loops,
+-- drums, bass, timbre and two constrained generative decisions.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")

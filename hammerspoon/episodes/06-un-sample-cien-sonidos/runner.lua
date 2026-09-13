@@ -1,3 +1,10 @@
+-- Glitxtober 2026 — Episodio 06: Un sample, cien sonidos
+--
+-- Canonical source: ORIGINAL.md.
+-- Development source: Sonic Pi's built-in :loop_amen so the automation remains
+-- reproducible on any machine. Production may replace it with the recorded
+-- "Glitxtober" voice while keeping the same Sonic Pi-only architecture.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")
@@ -53,11 +60,11 @@ return Runner.new({
       {
         type = "replace_line",
         target = "sample :loop_amen, start: 0.0, finish: 0.125",
-        text = [=[
-sample :loop_amen, start: 0.0, finish: 0.125, rate: 0.5
-sleep 1
-sample :loop_amen, start: 0.0, finish: 0.125, rate: 2.0
-]=],
+        text = "sample :loop_amen, start: 0.0, finish: 0.125, rate: 0.5",
+      },
+      {
+        type = "append",
+        text = "sleep 1\nsample :loop_amen, start: 0.0, finish: 0.125, rate: 2.0",
       },
     }},
 

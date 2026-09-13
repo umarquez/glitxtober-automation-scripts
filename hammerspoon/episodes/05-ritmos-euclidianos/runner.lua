@@ -1,3 +1,10 @@
+-- Glitxtober 2026 — Episodio 05: Ritmos euclidianos
+--
+-- Canonical source: ORIGINAL.md.
+-- Strategy: keep `spread(pulses, steps)` visible at all times. The final A/B
+-- comparison is split into two recording beats so Version A and Version B are
+-- both explicit states on screen.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")
@@ -56,9 +63,15 @@ return Runner.new({
       { type = "replace_line", target = "hats = spread(7, 16)", text = "hats = spread(11, 16)" },
     }},
 
-    { name = "07 — Performance A/B", actions = {
+    -- Return explicitly to the documented Version A before the final A/B.
+    { name = "07A — Performance: versión A", actions = {
+      { type = "replace_line", target = "hats = spread(11, 16)", text = "hats = spread(7, 16)" },
+    }},
+
+    { name = "07B — Performance: versión B", actions = {
       { type = "replace_line", target = "kick = spread(5, 16)", text = "kick = spread(7, 16)" },
       { type = "replace_line", target = "perc = spread(3, 16)", text = "perc = spread(5, 16)" },
+      { type = "replace_line", target = "hats = spread(7, 16)", text = "hats = spread(11, 16)" },
     }},
   },
 })

@@ -1,6 +1,10 @@
--- Glitxtober — Hammerspoon status router
--- Console output is always enabled.
--- On-screen alerts are opt-in through GLITX_STATUS_CONFIG.showAlerts.
+-- Glitxtober status router.
+--
+-- Policy:
+--   * console logging is always enabled;
+--   * visual alerts are disabled by default;
+--   * when enabled, alerts are sent only to a configured/control display;
+--   * there is no fallback to the Sonic Pi recording display.
 
 local Status = {}
 
@@ -11,9 +15,8 @@ local C = {
   alertScreen = userConfig.alertScreen or "secondary",
   alertScreenName = userConfig.alertScreenName,
   recordingAppName = userConfig.recordingAppName or "Sonic Pi",
+  defaultDuration = userConfig.defaultDuration or 1.30,
 }
-
-local originalAlertShow = hs.alert.show
 
 local function console(message)
   hs.printf("[Glitxtober] %s", tostring(message))
@@ -43,8 +46,6 @@ local function secondaryScreen()
     end
   end
 
-  -- If Sonic Pi has no resolvable window yet, prefer any screen that is not
-  -- the current main screen.
   local main = hs.screen.mainScreen()
   for _, screen in ipairs(screens) do
     if not main or screen:id() ~= main:id() then
@@ -72,7 +73,6 @@ local function configuredScreen()
     return hs.screen.mainScreen()
   end
 
-  -- Any other string is treated as an hs.screen.find() query/name.
   if type(C.alertScreen) == "string" then
     local screen = hs.screen.find(C.alertScreen)
     if screen then return screen end
@@ -82,26 +82,7 @@ local function configuredScreen()
   return nil
 end
 
-local function parseAlertArgs(...)
-  local style = nil
-  local duration = nil
-
-  for i = 1, select("#", ...) do
-    local arg = select(i, ...)
-    local argType = type(arg)
-
-    if argType == "table" and not style then
-      style = arg
-    elseif argType ~= "userdata" and duration == nil then
-      -- hs.alert treats the first remaining argument as duration.
-      duration = arg
-    end
-  end
-
-  return style, duration
-end
-
-function Status.show(message, ...)
+function Status.show(message, duration)
   console(message)
 
   if not C.showAlerts then
@@ -110,22 +91,11 @@ function Status.show(message, ...)
 
   local screen = configuredScreen()
   if not screen then
-    -- Safety first: do not fall back to the recording screen.
     console("Alerta visual omitida: no hay una pantalla de control disponible")
     return nil
   end
 
-  local style, duration = parseAlertArgs(...)
-
-  if style and duration ~= nil then
-    return originalAlertShow(message, style, screen, duration)
-  elseif style then
-    return originalAlertShow(message, style, screen)
-  elseif duration ~= nil then
-    return originalAlertShow(message, screen, duration)
-  end
-
-  return originalAlertShow(message, screen)
+  return hs.alert.show(message, screen, duration or C.defaultDuration)
 end
 
 function Status.log(message)
@@ -135,11 +105,6 @@ end
 function Status.config()
   return C
 end
-
--- The episode runners currently call hs.alert.show directly. Route those calls
--- through this module so every existing status message is sent to the console,
--- while keeping visual alerts optional.
-hs.alert.show = Status.show
 
 _G.GlitxStatus = Status
 

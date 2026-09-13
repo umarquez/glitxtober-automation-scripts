@@ -2,41 +2,30 @@
 
 **Estado:** listo para grabación con Sonic Pi.
 
-El episodio construye un único `live_loop` de 16 pasos. Kick, snare y hi-hat no forman un patrón fijo: cada voz evalúa reglas de posición y probabilidad en cada vuelta.
+El protagonista es la relación **posición → probabilidad → decisión → resultado rítmico**. Un solo `live_loop` recorre 16 pasos y decide kick, snare y hi-hat sin almacenar un patrón final.
 
-## Archivo
-
-- `runner.lua` — automatización Hammerspoon del episodio.
-
-## Flujo
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  S[Paso 0..15] --> P[Reglas métricas]
+  C[Reloj de 16 pasos] --> P[Posición]
   P --> K[Probabilidad kick]
-  P --> N[Probabilidad snare]
-  P --> H[Probabilidad hi-hat]
+  P --> S[Probabilidad snare]
+  P --> H[Probabilidad hats]
   K --> A[Eventos de audio]
-  N --> A
+  S --> A
   H --> A
 ```
 
-## Beats automatizados
+## Archivos
 
-1. Kick probabilístico.
-2. Backbeat probabilístico.
-3. Hi-hat como densidad.
-4. Escuchar las tres voces juntas.
-5. Cambiar un solo valor para aumentar la densidad del hi-hat.
+- `runner.lua` — añade las reglas de cada voz dentro del mismo loop.
+- [`ORIGINAL.md`](ORIGINAL.md) — código canónico de los cinco snapshots.
 
-## Controles
+## Decisión de automatización
 
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
+Snapshots 2 y 3 se insertan justo antes del `sleep 0.25`, de modo que las tres voces se evalúan en la misma posición temporal. Snapshot 5 cambia un solo número (`0.35 → 0.80`) para conservar la comparación pedagógica.
 
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+## Verificación de toma
+
+Escuchar varias vueltas antes y después del beat 05; la variación entre ciclos es intencional y no debe confundirse con un error del runner.

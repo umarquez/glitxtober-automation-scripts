@@ -1,30 +1,32 @@
 # Episodio 07 — La imagen se convierte en música
 
-**Estado:** TODO — requiere una etapa posterior en VS Code.
+**Estado:** 🟡 TODO — fase VS Code / Python.
 
-Sonic Pi consume dos arrays de 16 valores (`brightness` y `saturation`), pero el episodio completo necesita un extractor en Python que lea una imagen y produzca esos datos. Por esa razón todavía no se crea un runner de grabación definitivo.
+La parte Sonic Pi ya está definida, pero el episodio necesita un extractor de imagen en Python para generar 16 valores de brillo y 16 de saturación.
 
-## Arquitectura prevista
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  I[Imagen] --> P[Python en VS Code]
-  P -->|brightness[16]| S[Sonic Pi]
-  P -->|saturation[16]| S
-  S --> N[Altura]
-  S --> C[Cutoff / amplitud]
-  N --> A[Audio]
-  C --> A
+  I[Imagen] --> V[VS Code / Python]
+  V --> B[brightness 16 valores]
+  V --> S[saturation 16 valores]
+  B --> P[Sonic Pi]
+  S --> P
+  P --> A[Notas + cutoff]
 ```
 
-## TODO — fase VS Code
+## Código original
 
-- Crear `image_features.py` con Pillow y `colorsys`.
-- Fijar la convención de entrada para Imagen A / Imagen B.
-- Validar que cada array tenga exactamente 16 valores entre `0` y `1`.
-- Definir cómo Hammerspoon alternará entre VS Code y Sonic Pi durante la grabación.
-- Crear el runner final sólo cuando el extractor y el flujo A/B estén estabilizados.
+Todo el código de las cinco fases está preservado en [`ORIGINAL.md`](ORIGINAL.md), incluido el extractor Python de referencia.
 
-## Código Sonic Pi previsto
+## TODO VS Code
 
-La parte Sonic Pi mapeará brillo a notas de una escala pentatónica menor y saturación a cutoff/amplitud. El código musical se mantiene pendiente de automatización, no de diseño.
+- crear `image_features.py`;
+- elegir/validar Imagen A e Imagen B;
+- automatizar apertura/ejecución desde Hammerspoon;
+- transferir o pegar los arrays resultantes en Sonic Pi;
+- decidir si la captura muestra VS Code completo o sólo el resultado de consola;
+- añadir runner sólo cuando el flujo Python → Sonic Pi sea reproducible.
+
+No se crea `runner.lua` todavía para evitar documentar como “terminado” un flujo que depende de código externo.

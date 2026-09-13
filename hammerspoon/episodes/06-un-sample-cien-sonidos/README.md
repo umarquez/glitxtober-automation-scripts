@@ -1,51 +1,34 @@
 # Episodio 06 — Un sample, cien sonidos
 
-**Estado:** listo para grabación con Sonic Pi.
+**Estado:** listo para automatización Sonic Pi; pendiente sustituir la fuente de desarrollo por el sample vocal de producción.
 
-La automatización usa exclusivamente `:loop_amen` para que todo sea reproducible sin archivos externos. En producción puede sustituirse por la grabación vocal de “Glitxtober” manteniendo la misma arquitectura.
+La restricción del episodio es usar **una sola fuente** y obtener funciones distintas mediante slicing, `rate` y reproducción inversa.
 
-## Archivo
-
-- `runner.lua` — automatización Hammerspoon del episodio.
-
-## Flujo
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  S[Una fuente] --> A[start / finish]
-  S --> R[rate]
-  A --> L[Pulso grave]
-  A --> H[Capa aguda]
-  R --> X[Textura invertida]
-  L --> P[Arreglo]
-  H --> P
-  X --> P
+  S[Una sola muestra] --> L[Slice grave]
+  S --> H[Slice agudo]
+  S --> R[Reverse]
+  L --> A[Arreglo]
+  H --> A
+  R --> A
 ```
 
-## Beats automatizados
+## Archivos
 
-1. Escuchar la fuente.
-2. Seleccionar un fragmento.
-3. Comparar dos velocidades.
-4. Reproducir al revés.
-5. Crear el pulso grave.
-6. Añadir la capa aguda.
-7. Añadir textura invertida.
-8. Escuchar el arreglo completo.
-9. Mutar únicamente el `rate` de `:high_ticks`.
+- `runner.lua` — usa `:loop_amen` para que todas las pruebas sean reproducibles.
+- [`ORIGINAL.md`](ORIGINAL.md) — nueve snapshots canónicos.
 
-## Nota de producción
+## Decisión de automatización
 
-Para la toma con la voz de “Glitxtober”, ajustar `start` y `finish` por oído después de elegir el archivo definitivo. Esto no requiere código externo; sólo cambiar la fuente y los puntos de corte dentro de Sonic Pi.
+El snapshot 3 se implementa con dos acciones (`replace_line` + `append`) y no con un reemplazo multilinea; esto mantiene sincronizado el modelo del runner con la edición real. Snapshots 5–7 construyen el arreglo por `append_block`.
 
-## Controles
+## Producción
 
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
+Antes de la toma final se puede sustituir `:loop_amen` por la grabación de “Glitxtober”. Ajustar `start`/`finish` por oído sin cambiar la arquitectura del episodio.
 
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+## Verificación de toma
+
+Comprobar que **todas** las llamadas `sample` siguen apuntando a la misma fuente y que el cambio final sólo modifica `rate: 2.0 → 1.5` en `:high_ticks`.

@@ -1,12 +1,26 @@
 # Episodio 03 — Controlando un sinte desde el código
 
-**Estado:** listo para grabación desde Sonic Pi; requiere MicroFreak conectado por MIDI.
+**Estado:** listo para grabación con Sonic Pi + hardware MIDI.
 
-No necesita código externo. Sonic Pi genera los mensajes MIDI y el audio proviene del sintetizador hardware.
+Sonic Pi no genera el audio principal: envía notas y CC al sintetizador. El episodio demuestra una secuencia de 8 notas y un ciclo de 5 valores de cutoff que producen una relación de 40 pasos antes de repetirse.
 
-## Configuración del puerto MIDI
+## Arquitectura
 
-Antes de cargar el runner, define el puerto que Sonic Pi muestra en **Preferences → IO**:
+```mermaid
+flowchart LR
+  H[Hammerspoon] --> S[Sonic Pi]
+  S -->|MIDI notes + CC23| M[MicroFreak]
+  M --> A[Audio hardware]
+```
+
+## Archivos
+
+- `runner.lua` — estados autocontenidos para cada snapshot y versión robusta final.
+- [`ORIGINAL.md`](ORIGINAL.md) — código canónico, incluido el placeholder `<microfreak_port>`.
+
+## Configuración
+
+En `~/.hammerspoon/init.lua`:
 
 ```lua
 GLITX_EP03_CONFIG = {
@@ -14,39 +28,12 @@ GLITX_EP03_CONFIG = {
 }
 ```
 
-Si no se configura, el runner usa `"<microfreak_port>"` como placeholder y deja una advertencia en consola.
+El runner escapa el nombre como string Ruby antes de insertarlo en Sonic Pi.
 
-## Archivo
+## Decisión de automatización
 
-- `runner.lua` — automatización Hammerspoon del episodio.
+Los snapshots 1–4 reemplazan el buffer completo porque son demostraciones autocontenidas. El beat 05 ejecuta ambos ciclos simples; 05B sustituye el buffer por la variante sincronizada con `cue/sync`, preferida para la grabación final.
 
-## Flujo
+## Verificación de toma
 
-```mermaid
-flowchart LR
-  H[Hammerspoon] --> S[Sonic Pi]
-  S -->|MIDI notes| M[MicroFreak]
-  S -->|CC 23 cutoff| M
-  M --> A[Audio hardware]
-```
-
-## Beats automatizados
-
-1. Una nota MIDI.
-2. Secuencia fija de ocho notas.
-3. Demostración directa de CC23.
-4. Ciclo independiente de cutoff.
-5. Versión robusta con reloj compartido y ciclos de longitudes 8 y 5.
-6. Performance final.
-
-## Controles
-
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
-
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+Confirmar puerto, canal 1 y mapeo `CC23 → cutoff` en el MicroFreak real antes de grabar. El CI sólo puede revisar sintaxis/modelo; no puede comprobar el hardware.

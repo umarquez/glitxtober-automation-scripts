@@ -1,5 +1,16 @@
 -- Shared Hammerspoon runner for Glitxtober Sonic Pi episodes.
--- Handles safe typing, line navigation, incremental edits, reset/run and hotkeys.
+--
+-- Responsibilities:
+--   * focus Sonic Pi and its code editor;
+--   * type code with conservative Return timing;
+--   * apply deterministic incremental edits;
+--   * keep an internal text model of the buffer;
+--   * statically review every episode specification before binding hotkeys;
+--   * reset/stop Sonic Pi safely between takes;
+--   * expose one common hotkey set for every Sonic Pi-only episode.
+--
+-- The module intentionally does not know anything about a specific episode.
+-- Episode files only declare metadata and a list of beats/actions.
 
 local Runner = {}
 Runner.__index = Runner
@@ -7,10 +18,12 @@ Runner.__index = Runner
 local DEFAULTS = {
   appName = "Sonic Pi",
 
+  -- Human-readable typing cadence.
   charMin = 0.018,
   charMax = 0.048,
   punctuationExtra = 0.014,
 
+  -- Keystroke timings. Hammerspoon keyStroke delay is expressed in microseconds.
   keyStrokeUs = 50000,
   returnUs = 180000,
   newlineMin = 0.30,
@@ -18,6 +31,7 @@ local DEFAULTS = {
   structuralExtra = 0.16,
   sampleExtra = 0.14,
 
+  -- Focus/navigation/run timings.
   appFocusDelay = 0.50,
   editorFocusDelay = 0.18,
   beatStartDelay = 0.30,
@@ -31,6 +45,16 @@ local DEFAULTS = {
   stopSettleDelay = 0.55,
 
   statusDuration = 1.30,
+}
+
+local SUPPORTED_ACTIONS = {
+  set = true,
+  append = true,
+  append_block = true,
+  prepend = true,
+  insert_before = true,
+  insert_after = true,
+  replace_line = true,
 }
 
 local function copyTable(source)
@@ -50,6 +74,8 @@ local function status(message, duration)
     return _G.GlitxStatus.show(message, duration or DEFAULTS.statusDuration)
   end
 
+  -- Fallback is deliberately console-only so a missing status router never
+  -- contaminates the recording with an unexpected overlay.
   hs.printf("[Glitxtober] %s", tostring(message))
   return nil
 end
@@ -63,8 +89,11 @@ local function normalize(text)
   return text:gsub("\r\n", "\n"):gsub("\r", "\n")
 end
 
-local function stripFinalNewline(text)
-  return (normalize(text):gsub("\n$", ""))
+-- Long bracket literals normally carry one formatting newline before ]=].
+-- Remove exactly one final newline, preserving an intentional extra blank line.
+local function stripOneFinalNewline(text)
+  text = normalize(text)
+  return (text:gsub("\n$", "", 1))
 end
 
 local function linesOf(text)
@@ -110,7 +139,7 @@ end
 
 local function insertModel(document, index, text, after)
   local lines = linesOf(document)
-  local inserted = linesOf(stripFinalNewline(text))
+  local inserted = linesOf(stripOneFinalNewline(text))
   local out = {}
 
   for i, line in ipairs(lines) do
@@ -134,21 +163,170 @@ local function validateModel(document)
   for i, line in ipairs(lines) do
     local trimmed = line:gsub("^%s+", "")
 
+    -- Regression guard for the original dropped-Return failure observed while
+    -- typing drum code (for example: `sample :bd_haussleep 1`).
     if trimmed:match("^sample%s+") and trimmed:find("sleep", 1, true) then
       return false, "sample y sleep están en la misma línea"
     end
 
+    -- Top-level live_loops are kept visually separated. This also gives the
+    -- runtime an extra Return boundary when adding a new block on camera.
     if trimmed:match("^live_loop%s+") and i > 1 and lines[i - 1] ~= "" then
       return false, "falta línea en blanco antes de " .. trimmed
+    end
+
+    if line:find("endlive_loop", 1, true) then
+      return false, "dos bloques quedaron fusionados: endlive_loop"
     end
   end
 
   return true
 end
 
+local function validateAction(action)
+  if type(action) ~= "table" then
+    return false, "la acción no es una tabla"
+  end
+
+  if not SUPPORTED_ACTIONS[action.type] then
+    return false, "tipo de acción desconocido: " .. tostring(action.type)
+  end
+
+  if type(action.text) ~= "string" then
+    return false, "la acción " .. tostring(action.type) .. " requiere text"
+  end
+
+  if action.type == "replace_line" and normalize(action.text):find("\n", 1, true) then
+    return false, "replace_line sólo admite una línea; divide el cambio en acciones explícitas"
+  end
+
+  if action.type == "insert_before" or
+     action.type == "insert_after" or
+     action.type == "replace_line" then
+    if type(action.target) ~= "string" or action.target == "" then
+      return false, "la acción " .. action.type .. " requiere target"
+    end
+  end
+
+  return true
+end
+
+local function applyModelAction(document, action)
+  local ok, err = validateAction(action)
+  if not ok then return nil, err end
+
+  local kind = action.type
+  local text = stripOneFinalNewline(action.text)
+
+  if kind == "set" then
+    return text
+  end
+
+  if kind == "append" then
+    if document == "" then return text end
+    return document .. "\n" .. text
+  end
+
+  if kind == "append_block" then
+    if document == "" then return text end
+    return document .. "\n\n" .. text
+  end
+
+  if kind == "prepend" then
+    return normalize(action.text) .. document
+  end
+
+  local line = findLine(document, action.target)
+  if not line then
+    return nil, "no se encontró target: " .. tostring(action.target)
+  end
+
+  if kind == "insert_before" then
+    return insertModel(document, line, action.text, false)
+  end
+
+  if kind == "insert_after" then
+    return insertModel(document, line, action.text, true)
+  end
+
+  if kind == "replace_line" then
+    return replaceModelLine(document, line, text)
+  end
+
+  return nil, "acción no implementada: " .. tostring(kind)
+end
+
+-- Pure/static review. No Hammerspoon API is needed here, which makes the same
+-- episode specification testable in CI and at Hammerspoon load time.
+function Runner.reviewSpec(spec)
+  if type(spec) ~= "table" then
+    return nil, "la especificación no es una tabla"
+  end
+
+  if type(spec.beats) ~= "table" or #spec.beats == 0 then
+    return nil, "la especificación requiere al menos un beat"
+  end
+
+  local document = ""
+  local snapshots = {}
+  local seenNames = {}
+
+  for beatIndex, beat in ipairs(spec.beats) do
+    if type(beat) ~= "table" or type(beat.name) ~= "string" or beat.name == "" then
+      return nil, string.format("beat %d sin nombre válido", beatIndex)
+    end
+
+    if seenNames[beat.name] then
+      return nil, "nombre de beat duplicado: " .. beat.name
+    end
+    seenNames[beat.name] = true
+
+    local actions = beat.actions or {}
+    if type(actions) ~= "table" then
+      return nil, string.format("beat %d: actions debe ser una tabla", beatIndex)
+    end
+
+    for actionIndex, action in ipairs(actions) do
+      local nextDocument, actionErr = applyModelAction(document, action)
+      if not nextDocument then
+        return nil, string.format(
+          "beat %d (%s), acción %d: %s",
+          beatIndex,
+          beat.name,
+          actionIndex,
+          actionErr
+        )
+      end
+
+      document = nextDocument
+    end
+
+    local modelOk, modelErr = validateModel(document)
+    if not modelOk then
+      return nil, string.format(
+        "beat %d (%s): %s",
+        beatIndex,
+        beat.name,
+        modelErr
+      )
+    end
+
+    snapshots[beatIndex] = document
+  end
+
+  return {
+    snapshots = snapshots,
+    finalDocument = document,
+  }
+end
+
 function Runner.new(spec)
-  assert(type(spec) == "table", "Runner.new requiere una especificación")
-  assert(type(spec.beats) == "table", "La especificación requiere beats")
+  local review, reviewErr = Runner.reviewSpec(spec)
+  assert(review, string.format(
+    "EP%s — especificación inválida: %s",
+    tostring(spec and spec.episode or "XX"),
+    tostring(reviewErr)
+  ))
 
   if _G.GLITX_ACTIVE_RUNNER and _G.GLITX_ACTIVE_RUNNER.destroy then
     _G.GLITX_ACTIVE_RUNNER:destroy()
@@ -159,6 +337,7 @@ function Runner.new(spec)
     title = spec.title or "Sonic Pi",
     beats = spec.beats,
     C = merge(DEFAULTS, spec.config),
+    review = review,
 
     beat = 1,
     busy = false,
@@ -201,7 +380,7 @@ end
 function Runner:cancel(message, dirty)
   self.generation = self.generation + 1
   if self.timer then self.timer:stop(); self.timer = nil end
-  if dirty and self.busy then self.dirty = true end
+  if dirty then self.dirty = true end
   self.busy = false
   if message then status(message, 1.8) end
 end
@@ -345,7 +524,7 @@ function Runner:edit(action, done)
   local kind = action.type
 
   if kind == "set" then
-    local text = stripFinalNewline(action.text)
+    local text = stripOneFinalNewline(action.text)
 
     self:clear(function()
       self:typeText(text, function()
@@ -358,7 +537,7 @@ function Runner:edit(action, done)
   end
 
   if kind == "append" then
-    local text = stripFinalNewline(action.text)
+    local text = stripOneFinalNewline(action.text)
     local prefix = self.document == "" and "" or "\n"
 
     self:boundary("end", function()
@@ -373,7 +552,7 @@ function Runner:edit(action, done)
   end
 
   if kind == "append_block" then
-    local text = stripFinalNewline(action.text)
+    local text = stripOneFinalNewline(action.text)
     local prefix = self.document == "" and "" or "\n\n"
 
     self:boundary("end", function()
@@ -433,7 +612,7 @@ function Runner:edit(action, done)
   end
 
   if kind == "replace_line" then
-    local replacement = stripFinalNewline(action.text)
+    local replacement = stripOneFinalNewline(action.text)
     local gen = self.generation
 
     self:goToLine(line, function()
@@ -541,6 +720,8 @@ function Runner:resetTake()
   self:focusEditor(function()
     if gen ~= self.generation then return end
 
+    -- Two Stop commands intentionally flush live_loop threads from previous
+    -- takes before the editor is cleared.
     self:key({"cmd"}, "s")
     self:schedule(self.C.stopRepeatDelay, function()
       self:key({"cmd"}, "s")

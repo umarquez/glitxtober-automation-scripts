@@ -1,3 +1,9 @@
+-- Glitxtober 2026 — Episodio 10: Una máquina que hace música sola
+--
+-- Canonical source: ORIGINAL.md.
+-- Strategy: evolve a single global state into a constrained state machine.
+-- Randomness is seeded and only chooses valid transitions/small variations.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")

@@ -2,44 +2,30 @@
 
 **Estado:** listo para grabación con Sonic Pi.
 
-Este runner construye progresivamente una pieza desde una sola instrucción hasta una mini-performance con melodía, batería, bajo, elección tímbrica y dos decisiones generativas. Es el episodio de referencia para el motor de escritura incremental y para las pausas seguras entre saltos de línea.
+El episodio parte de una sola instrucción y construye una mini pieza por acumulación: frase, tempo, `live_loop`, batería, bajo, timbre y dos decisiones generativas limitadas.
 
-## Archivo
-
-- `runner.lua` — automatización Hammerspoon del episodio.
-
-## Flujo
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  H[Hammerspoon] --> E[Editor de Sonic Pi]
-  E --> R[Run]
-  R --> M[Melodía]
-  R --> D[Batería]
-  R --> B[Bajo]
-  M --> G[Decisiones generativas]
+  H[Hammerspoon] --> S[Sonic Pi]
+  S --> M[Melodía]
+  S --> D[Batería]
+  S --> B[Bajo]
+  M --> G[2 decisiones generativas]
 ```
 
-## Beats automatizados
+## Archivos
 
-1. Una instrucción, un sonido.
-2. Construir el hook.
-3. Fijar el tempo.
-4. Convertir la frase en `live_loop`.
-5. Añadir kick, snare y hats.
-6. Añadir bajo sincopado.
-7. Probar `:beep`, `:prophet` y cerrar con `:pluck`.
-8. Convertir dos notas en decisiones generativas.
-9. Mini-performance final.
+- `runner.lua` — automatización incremental para cámara.
+- [`ORIGINAL.md`](ORIGINAL.md) — código canónico de cada snapshot.
 
-## Controles
+## Automatización
 
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
+El runner conserva la naturaleza acumulativa del piloto. Los snapshots 5A/5B/5C, 7 y 8 se dividen en beats de grabación más pequeños para que cada cambio sea legible en pantalla.
 
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+El episodio es también la referencia para probar el motor compartido: separación de `live_loop`, escritura segura de `sample → sleep`, edición por línea y reset del runtime.
+
+## Verificación de toma
+
+Antes de grabar, recorrer 01→09 completo y confirmar especialmente 05A–05C (saltos de línea), 07A–07C (reemplazos repetidos de notas) y 08A–08B (targets únicos después de las sustituciones previas).

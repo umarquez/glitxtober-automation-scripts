@@ -2,42 +2,29 @@
 
 **Estado:** listo para grabación con Sonic Pi.
 
-El episodio hace visible la relación entre **paso → dato → evento**. Primero aparece el reloj, luego una partitura de kick, después snare y hats, y finalmente se modifica el groove sin tocar el motor de reproducción.
+El episodio separa **motor** y **datos**: el `live_loop` sólo consulta la posición actual; kick, snare y hats viven en rings de 16 pasos.
 
-## Archivo
-
-- `runner.lua` — automatización Hammerspoon del episodio.
-
-## Flujo
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  C[Reloj / tick] --> I[Índice de paso]
-  I --> K[Ring kick]
-  I --> S[Ring snare]
-  I --> H[Ring hats]
-  K --> A[Samples]
-  S --> A
-  H --> A
+  T[tick / posición] --> K[ring kick]
+  T --> S[ring snare]
+  T --> H[ring hats]
+  K --> E[Eventos]
+  S --> E
+  H --> E
 ```
 
-## Beats automatizados
+## Archivos
 
-1. Reloj de 16 pasos.
-2. Patrón de kick.
-3. Kick + snare.
-4. Tres voces.
-5. Cambiar el kick sin cambiar el motor.
-6. Estado final de performance.
+- `runner.lua` — construcción incremental del secuenciador.
+- [`ORIGINAL.md`](ORIGINAL.md) — seis snapshots canónicos.
 
-## Controles
+## Decisión de automatización
 
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
+Después de establecer el motor, los beats 03 y 04 sólo insertan datos y una nueva consulta de sample. Los beats 05 y 06 cambian rings, no el `live_loop`, para hacer visible la separación entre partitura y motor.
 
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+## Verificación de toma
+
+En el beat 05 confirmar que ninguna línea dentro de `live_loop :sequencer` cambió; en el 06 deben cambiar únicamente snare y hats respecto al estado anterior.

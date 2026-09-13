@@ -1,26 +1,31 @@
 # Episodio 08 — Convierte tu trackpad en un instrumento
 
-**Estado:** TODO — requiere una etapa posterior en VS Code.
+**Estado:** 🟡 TODO — fase VS Code / Python + OSC.
 
-El episodio necesita un bridge en Python que convierta movimiento X/Y en mensajes OSC. Sonic Pi recibe esos valores, cuantiza X en estados de cutoff y Y en cuatro densidades rítmicas, y después envía MIDI al MicroFreak.
+Un bridge Python convierte movimiento X/Y en OSC; Sonic Pi transforma X en estados de cutoff y Y en densidades rítmicas.
 
-## Arquitectura prevista
+## Arquitectura
 
 ```mermaid
 flowchart LR
-  T[Trackpad / puntero] --> P[Python bridge en VS Code]
-  P -->|OSC /gesture x y| S[Sonic Pi]
-  S --> X[X → cutoff]
-  S --> Y[Y → densidad]
-  X --> M[MIDI → MicroFreak]
+  T[Trackpad / puntero] --> V[VS Code / Python]
+  V -->|OSC /gesture x y| S[Sonic Pi]
+  S --> X[X = cutoff]
+  S --> Y[Y = densidad]
+  X --> M[MIDI / audio]
   Y --> M
 ```
 
-## TODO — fase VS Code
+## Código original
 
-- Crear `gesture_bridge.py`.
-- Confirmar la librería OSC y el puerto `4560`.
-- Definir la superficie gestual definitiva para grabación.
-- Configurar el puerto MIDI real del MicroFreak.
-- Automatizar el cambio de foco VS Code ↔ Sonic Pi con Hammerspoon.
-- Crear el runner final cuando el bridge sea estable.
+Las seis fases, incluido el bridge `tkinter + python-osc`, están en [`ORIGINAL.md`](ORIGINAL.md).
+
+## TODO VS Code
+
+- crear `gesture_bridge.py`;
+- fijar dependencias/entorno Python;
+- validar OSC hacia `127.0.0.1:4560`;
+- configurar el puerto MIDI del sinte para el snapshot 5;
+- automatizar lanzamiento/parada del bridge;
+- diseñar el runner multiprograma Hammerspoon (VS Code ↔ Sonic Pi);
+- hacer prueba de zonas X/Y antes de grabar.

@@ -1,22 +1,22 @@
--- Example ~/.hammerspoon/init.lua for Glitxtober
+-- Example ~/.hammerspoon/init.lua for Glitxtober.
+-- Copy/adapt this file; keep only one episode active at a time.
 
 GLITX_ROOT =
   os.getenv("HOME") ..
   "/.hammerspoon/glitxtober-automation-scripts"
 
--- Console output is always enabled.
--- Visual alerts are opt-in and should live on a control display.
+-- Console output is always enabled. Visual alerts are opt-in.
 GLITX_STATUS_CONFIG = {
   showAlerts = false,
   alertScreen = "secondary",
   recordingAppName = "Sonic Pi",
 }
 
--- Load exactly one episode runner at a time.
+-- Episode directory slug from hammerspoon/episodes/.
 GLITX_EPISODE = "01-codigo-sonido"
 
 -- Episode-specific configuration.
--- Uncomment for Episode 03 after checking Sonic Pi > Preferences > IO.
+-- Uncomment for EP03 after checking Sonic Pi > Preferences > IO.
 -- GLITX_EP03_CONFIG = {
 --   midiPort = "NOMBRE EXACTO DEL PUERTO",
 -- }

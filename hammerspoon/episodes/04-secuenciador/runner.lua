@@ -1,3 +1,9 @@
+-- Glitxtober 2026 — Episodio 04: Construye tu propio secuenciador
+--
+-- Canonical source: ORIGINAL.md.
+-- Strategy: establish a 16-step clock, move the pattern into data, then add
+-- voices while keeping the playback engine unchanged.
+
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
   (os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts")

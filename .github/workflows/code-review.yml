@@ -1,0 +1,34 @@
+name: Code review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install review runtimes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4 ruby-full
+
+      - name: Repository structure, docs and source snippets
+        run: python3 tools/review_repo.py
+
+      - name: Python syntax
+        run: python3 -m py_compile tools/review_repo.py
+
+      - name: Lua syntax
+        run: |
+          find hammerspoon tests -name '*.lua' -print0 \
+            | xargs -0 -n1 luac5.4 -p
+
+      - name: Headless runner-model review
+        env:
+          GLITX_ROOT: .
+        run: lua5.4 tests/review.lua

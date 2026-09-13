@@ -2,13 +2,9 @@
 
 **Estado:** listo para grabación con Sonic Pi.
 
-El episodio introduce una máquina de estados: las capas consultan un estado global y un director cambia la forma. La aleatoriedad sólo elige transiciones válidas o pequeñas variaciones internas.
+El episodio construye una máquina de estados musical: las capas leen un estado global y un director decide transiciones válidas. La aleatoriedad está acotada y sembrada.
 
-## Archivo
-
-- `runner.lua` — automatización Hammerspoon del episodio.
-
-## Flujo
+## Arquitectura
 
 ```mermaid
 stateDiagram-v2
@@ -21,36 +17,15 @@ stateDiagram-v2
   breakdown --> groove
 ```
 
-```mermaid
-flowchart LR
-  D[Director] --> S[Estado global]
-  S --> DR[Drums]
-  S --> B[Bass]
-  S --> M[Motif]
-  DR --> A[Forma musical]
-  B --> A
-  M --> A
-```
+## Archivos
 
-## Beats automatizados
+- `runner.lua` — evolución desde estado global hasta performance completa.
+- [`ORIGINAL.md`](ORIGINAL.md) — ocho snapshots canónicos.
 
-1. Estado global.
-2. Drums condicionados por estado.
-3. Director determinista.
-4. Tabla de transiciones.
-5. Director autónomo reproducible con seed.
-6. Bajo condicionado por estado.
-7. Motivo con memoria de estado.
-8. Performance final.
+## Decisión de automatización
 
-## Controles
+Los primeros beats conservan el desarrollo pedagógico; el beat 05 reemplaza el buffer por una versión autocontenida con `next_state`, seed, drums y director. Los beats 06 y 07 añaden bajo y motivo como bloques independientes.
 
-| Hotkey | Acción |
-| --- | --- |
-| `Ctrl + Alt + Cmd + R` | Detiene Sonic Pi, limpia el buffer y reinicia la toma. |
-| `Ctrl + Alt + Cmd + N` | Ejecuta el siguiente beat de grabación. |
-| `Ctrl + Alt + Cmd + I` | Muestra en consola cuál es el siguiente beat. |
-| `Ctrl + Alt + Cmd + X` | Cancela la automatización y marca la toma como desincronizada. |
-| `Ctrl + Alt + Cmd + T` | Prueba mínima de escritura. |
+## Verificación de toma
 
-Los mensajes siempre se registran en la consola de Hammerspoon. Las alertas visuales son opcionales y están deshabilitadas por defecto.
+Confirmar que la seed sea `2026`, que no aparezcan estados fuera de `intro/groove/variation/breakdown` y que bass/motif sólo reaccionen a los estados documentados.
