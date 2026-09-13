@@ -1,6 +1,15 @@
 -- Example ~/.hammerspoon/init.lua for Glitxtober
 
-dofile(
-  os.getenv("HOME") ..
-  "/.hammerspoon/glitxtober-automation-scripts/hammerspoon/episodes/ep01_codigo_sonido.lua"
-)
+local ROOT = os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts"
+
+-- Console logging is always enabled.
+-- Visual alerts are disabled by default so they do not appear in recordings.
+GLITX_STATUS_CONFIG = {
+  showAlerts = false,
+  alertScreen = "secondary", -- "secondary", "main", or a screen name/query
+  -- alertScreenName = "DELL U2720Q", -- optional explicit hs.screen.find() target
+  recordingAppName = "Sonic Pi",
+}
+
+dofile(ROOT .. "/hammerspoon/glitx_status.lua")
+dofile(ROOT .. "/hammerspoon/episodes/ep01_codigo_sonido.lua")
