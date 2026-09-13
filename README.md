@@ -12,15 +12,58 @@ Corresponde al Episodio 01 — **Código → sonido** y construye el código inc
 
 ### Instalación sugerida
 
-Clona este repositorio dentro de `~/.hammerspoon/` y carga el episodio desde `~/.hammerspoon/init.lua`:
+Clona este repositorio dentro de `~/.hammerspoon/` y carga primero el router de estado y después el episodio desde `~/.hammerspoon/init.lua`:
 
 ```lua
-dofile(os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts/hammerspoon/episodes/ep01_codigo_sonido.lua")
+local ROOT = os.getenv("HOME") .. "/.hammerspoon/glitxtober-automation-scripts"
+
+GLITX_STATUS_CONFIG = {
+  showAlerts = false,
+  alertScreen = "secondary",
+  recordingAppName = "Sonic Pi",
+}
+
+dofile(ROOT .. "/hammerspoon/glitx_status.lua")
+dofile(ROOT .. "/hammerspoon/episodes/ep01_codigo_sonido.lua")
 ```
 
 Después usa **Reload Config** en Hammerspoon.
 
 Hammerspoon necesita permiso en **System Settings → Privacy & Security → Accessibility** para generar los eventos de teclado.
+
+### Mensajes de estado
+
+Los mensajes del runner se envían siempre a la **Hammerspoon Console**, por lo que no necesitan aparecer sobre la pantalla que estás grabando.
+
+Las alertas visuales están deshabilitadas por defecto:
+
+```lua
+GLITX_STATUS_CONFIG = {
+  showAlerts = false,
+}
+```
+
+Para activarlas en una pantalla secundaria:
+
+```lua
+GLITX_STATUS_CONFIG = {
+  showAlerts = true,
+  alertScreen = "secondary",
+}
+```
+
+El router intenta identificar la pantalla donde está Sonic Pi y usa otro monitor como pantalla de control. Si no encuentra una segunda pantalla, **no hace fallback a la pantalla de grabación**: conserva únicamente el mensaje en consola.
+
+También puedes forzar una pantalla por nombre usando `hs.screen.find()`:
+
+```lua
+GLITX_STATUS_CONFIG = {
+  showAlerts = true,
+  alertScreenName = "DELL U2720Q",
+}
+```
+
+`hammerspoon/glitx_status.lua` intercepta los mensajes existentes del runner, los registra en consola y sólo dibuja una alerta si `showAlerts` es `true`.
 
 ### Controles
 
