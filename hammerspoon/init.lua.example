@@ -1,0 +1,6 @@
+-- Example ~/.hammerspoon/init.lua for Glitxtober
+
+dofile(
+  os.getenv("HOME") ..
+  "/.hammerspoon/glitxtober-automation-scripts/hammerspoon/episodes/ep01_codigo_sonido.lua"
+)
