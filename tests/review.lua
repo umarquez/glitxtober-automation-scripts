@@ -34,6 +34,12 @@ _G.hs = {
     keyStrokes = noop,
   },
 
+  pasteboard = {
+    getContents = function() return "" end,
+    setContents = function() return true end,
+    clearContents = noop,
+  },
+
   application = {
     launchOrFocus = function() return true end,
     get = function() return nil end,
@@ -56,6 +62,35 @@ _G.GLITX_STATUS_CONFIG = {
 }
 
 dofile(root .. "/hammerspoon/glitx_status.lua")
+
+-- Pure regression checks for the exact class of failure seen in Sonic Pi.
+local SharedRunner = dofile(root .. "/hammerspoon/lib/sonic_pi_runner.lua")
+
+assert(
+  SharedRunner.buffersMatch(
+    "  sample :bd_haus\n    sleep 1\n",
+    "sample :bd_haus\nsleep 1"
+  ),
+  "indentation/Tidy differences should compare equal"
+)
+
+assert(
+  not SharedRunner.buffersMatch(
+    "sample :bd_haussleep 1",
+    "sample :bd_haus\nsleep 1"
+  ),
+  "dropped newline between sample and sleep must never compare equal"
+)
+
+assert(
+  not SharedRunner.buffersMatch(
+    "end\nlive_loop :snare do",
+    "end\n\nlive_loop :snare do"
+  ),
+  "missing blank line between top-level loops must be detected"
+)
+
+io.write("PASS newline/buffer-integrity regression guards\n")
 
 -- Avoid a placeholder warning obscuring CI output while still exercising the
 -- string escaping/configuration path used by Episode 03.
