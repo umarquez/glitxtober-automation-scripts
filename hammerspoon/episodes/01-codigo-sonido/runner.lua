@@ -5,10 +5,9 @@
 -- edit deterministic in Sonic Pi.
 --
 -- Structural-first rule:
---   whenever a block is introduced, its closing `end` is written before any
---   body content is inserted. Body content is then typed immediately after the
---   opener, before the already-existing `end`. No Run happens between those
---   structural actions; Run occurs only after the whole beat is complete.
+--   write the block opener first, then its closing `end`, before inserting body
+--   content. When body content is added, reuse the newline that already exists
+--   between opener and `end`; never create an extra blank line accidentally.
 --
 -- Local-edit rule:
 --   late edits locate their exact current text through Sonic Pi's Find UI.
@@ -127,8 +126,14 @@ local spec = {
   title = "Código → sonido",
 
   config = {
+    -- Deliberately slower and more varied than the shared defaults so the
+    -- on-camera typing reads as human rather than machine-gunned text.
+    charMin = 0.045,
+    charMax = 0.105,
+    punctuationExtra = 0.025,
+
     navDelay = 0.10,
-    settleAfterNav = 0.16,
+    settleAfterNav = 0.18,
     keyStrokeUs = 70000,
   },
 
@@ -145,13 +150,15 @@ local spec = {
       { type = "prepend", text = "use_bpm 120\n\n" },
     }},
 
-    -- Close first, then add the opener around the already-demonstrated melody.
+    -- Visible order: opener first, closing end second. Run only happens after
+    -- both actions have completed, so the temporary open block is never run.
     { name = "04 — Repetir sin copiar", actions = {
-      { type = "append", text = "end" },
       { type = "insert_before", target = "play :d5", text = "live_loop :melody do\n" },
+      { type = "append", text = "end" },
     }},
 
-    -- Shell first. Then return to each opener and type inside the existing end.
+    -- Shell first: the append visibly types opener then end. Body insertion
+    -- later reuses the shell's existing newline and preserves its closing end.
     { name = "05A — Añadir kick", actions = {
       { type = "append_block", text = "live_loop :kick, sync: :melody do\nend" },
       insideBlock("live_loop :kick, sync: :melody do", "4.times do\nend"),
@@ -178,12 +185,10 @@ local spec = {
       insideBlock("live_loop :melody do", "use_synth :fm\n"),
     }},
 
-    -- Only :fm is selected and typed over.
     { name = "07B — Lead: :pluck", actions = {
       tokenChange("use_synth :fm", "use_synth :pluck", ":fm", ":pluck"),
     }},
 
-    -- Each suffix is typed after finding the exact still-unmodified play line.
     { name = "07C — Articulación; conservar :pluck", actions = {
       articulated("play :d5"),
       articulated("play :fs5"),
@@ -236,8 +241,6 @@ local function moveRepeated(runner, mods, key, count, done)
   step()
 end
 
--- Find exact visible text in Sonic Pi and leave the editor selection on that
--- match. This avoids relying on a long chain of Up/Down cursor events.
 local function findEditorText(runner, text, done)
   local gen = runner.generation
 
@@ -297,15 +300,20 @@ function runner:edit(action, done)
     findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Find leaves the exact opener selected. Collapse at its end, then type a
-      -- newline and the body. The existing `end` remains below throughout.
+      -- Find leaves the opener selected. Collapse at its right edge, then cross
+      -- the newline that already belongs to the shell. We are now at the start
+      -- of the existing `end` line. Type the body plus exactly one trailing
+      -- newline, so that existing `end` remains on its own line.
       self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
-        self:typeText("\n" .. body, function()
-          if gen ~= self.generation then return end
-          self.document = nextDocument
-          verifyLocalEdit(self, done)
-        end)
+        self:key({}, "right")
+        self:schedule(self.C.settleAfterNav, function()
+          self:typeText(body .. "\n", function()
+            if gen ~= self.generation then return end
+            self.document = nextDocument
+            verifyLocalEdit(self, done)
+          end)
+        end, gen)
       end, gen)
     end)
     return
@@ -328,7 +336,6 @@ function runner:edit(action, done)
     findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Collapse the exact match at its right edge and append only the suffix.
       self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
         self:typeText(action.typed_suffix, function()
@@ -375,8 +382,6 @@ function runner:edit(action, done)
     findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Collapse the full-line match at its right edge, walk back only over the
-      -- known trailing characters, then select and replace the token itself.
       self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
         moveRepeated(self, {}, "left", charsAfter, function()
