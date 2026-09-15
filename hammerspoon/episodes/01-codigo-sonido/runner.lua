@@ -6,9 +6,10 @@
 -- drums, bass, timbre and two constrained generative decisions.
 --
 -- Reliability note:
--- Steps 11-13 use atomic editor updates. Those steps previously depended on
--- repeated line selections in Sonic Pi and could damage adjacent lines. Their
--- target state is now computed first and pasted as one verified buffer update.
+-- Step 11 keeps the visible typing effect without replacing whole lines. Each
+-- articulation suffix is typed at the end of an exact existing `play` line.
+-- This avoids the fragile Shift+Down line-selection path that failed in Sonic Pi.
+-- Steps 12-13 remain atomic until their real editor snapshots are validated.
 
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
@@ -77,44 +78,7 @@ sleep 0.5
 end
 ]=]
 
-local MELODY_ARTICULATED = [=[live_loop :melody do
-use_synth :pluck
-
-play :d5, release: 0.2, amp: 0.9
-sleep 0.5
-play :fs5, release: 0.2, amp: 0.9
-sleep 0.25
-play :a5, release: 0.2, amp: 0.9
-sleep 0.25
-play :b5, release: 0.2, amp: 0.9
-sleep 0.5
-play :a5, release: 0.2, amp: 0.9
-sleep 0.5
-play :fs5, release: 0.2, amp: 0.9
-sleep 0.25
-play :e5, release: 0.2, amp: 0.9
-sleep 0.25
-play :fs5, release: 0.2, amp: 0.9
-sleep 1.5
-end]=]
-
-local function trimBlock(text)
-  return text:gsub("^\n", ""):gsub("\n$", "")
-end
-
-local STEP11_DOCUMENT = table.concat({
-  "use_bpm 120",
-  "",
-  MELODY_ARTICULATED,
-  "",
-  trimBlock(KICK),
-  "",
-  trimBlock(SNARE),
-  "",
-  trimBlock(HATS),
-  "",
-  trimBlock(BASS),
-}, "\n")
+local ARTICULATION_SUFFIX = ", release: 0.2, amp: 0.9"
 
 local function normalize(text)
   return (text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
@@ -122,6 +86,15 @@ end
 
 local function stripOneFinalNewline(text)
   return (normalize(text):gsub("\n$", "", 1))
+end
+
+local function findExactLine(document, target)
+  local index = 0
+  for line in (normalize(document) .. "\n"):gmatch("(.-)\n") do
+    index = index + 1
+    if line == target then return index end
+  end
+  return nil
 end
 
 local function replaceExactLine(document, target, replacement)
@@ -139,6 +112,15 @@ local function replaceExactLine(document, target, replacement)
 
   if not found then return nil end
   return table.concat(lines, "\n")
+end
+
+local function articulated(target)
+  return {
+    type = "replace_line",
+    target = target,
+    text = target .. ARTICULATION_SUFFIX,
+    typed_suffix = ARTICULATION_SUFFIX,
+  }
 end
 
 local spec = {
@@ -188,7 +170,14 @@ local spec = {
     }},
 
     { name = "07C — Articulación; conservar :pluck", actions = {
-      { type = "set", text = STEP11_DOCUMENT, atomic = true },
+      articulated("play :d5"),
+      articulated("play :fs5"),
+      articulated("play :a5"),
+      articulated("play :b5"),
+      articulated("play :a5"),
+      articulated("play :fs5"),
+      articulated("play :e5"),
+      articulated("play :fs5"),
     }},
 
     { name = "08A — Primera decisión generativa", actions = {
@@ -216,10 +205,46 @@ local spec = {
 local runner = Runner.new(spec)
 local baseEdit = runner.edit
 
--- EP01-specific reliability override for the historically fragile articulation
--- and choose edits. The model is updated first, then the entire editor buffer is
--- replaced in one paste operation. No Shift+Down selection is involved.
+-- EP01-specific editor strategies for the fragile late steps.
 function runner:edit(action, done)
+  if action.typed_suffix then
+    local line = findExactLine(self.document, action.target)
+    if not line then
+      self:cancel("No encontré target para articulación: " .. tostring(action.target), true)
+      return
+    end
+
+    local expected = action.target .. action.typed_suffix
+    if expected ~= stripOneFinalNewline(action.text) then
+      self:cancel("La articulación declarada no coincide con el modelo", true)
+      return
+    end
+
+    local nextDocument = replaceExactLine(self.document, action.target, expected)
+    if not nextDocument then
+      self:cancel("No pude actualizar el modelo de articulación", true)
+      return
+    end
+
+    local gen = self.generation
+    self:goToLine(line, function()
+      if gen ~= self.generation then return end
+
+      -- Cmd+Right moves to the end of the current logical line without
+      -- selecting or touching the following newline. Only the new suffix is
+      -- typed, preserving the visible coding effect on camera.
+      self:key({"cmd"}, "right")
+      self:schedule(self.C.settleAfterNav, function()
+        self:typeText(action.typed_suffix, function()
+          if gen ~= self.generation then return end
+          self.document = nextDocument
+          self:schedule(self.C.settleAfterEdit, done, gen)
+        end)
+      end, gen)
+    end)
+    return
+  end
+
   if not action.atomic then
     return baseEdit(self, action, done)
   end
