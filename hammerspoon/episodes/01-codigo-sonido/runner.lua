@@ -4,6 +4,11 @@
 -- Strategy: preserve the cumulative visual construction of the pilot. The
 -- runner starts from one note and progressively adds timing, live_loops,
 -- drums, bass, timbre and two constrained generative decisions.
+--
+-- Reliability note:
+-- Steps 11-13 use atomic editor updates. Those steps previously depended on
+-- repeated line selections in Sonic Pi and could damage adjacent lines. Their
+-- target state is now computed first and pasted as one verified buffer update.
 
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
@@ -72,7 +77,71 @@ sleep 0.5
 end
 ]=]
 
-return Runner.new({
+local MELODY_ARTICULATED = [=[live_loop :melody do
+use_synth :pluck
+
+play :d5, release: 0.2, amp: 0.9
+sleep 0.5
+play :fs5, release: 0.2, amp: 0.9
+sleep 0.25
+play :a5, release: 0.2, amp: 0.9
+sleep 0.25
+play :b5, release: 0.2, amp: 0.9
+sleep 0.5
+play :a5, release: 0.2, amp: 0.9
+sleep 0.5
+play :fs5, release: 0.2, amp: 0.9
+sleep 0.25
+play :e5, release: 0.2, amp: 0.9
+sleep 0.25
+play :fs5, release: 0.2, amp: 0.9
+sleep 1.5
+end]=]
+
+local function trimBlock(text)
+  return text:gsub("^\n", ""):gsub("\n$", "")
+end
+
+local STEP11_DOCUMENT = table.concat({
+  "use_bpm 120",
+  "",
+  MELODY_ARTICULATED,
+  "",
+  trimBlock(KICK),
+  "",
+  trimBlock(SNARE),
+  "",
+  trimBlock(HATS),
+  "",
+  trimBlock(BASS),
+}, "\n")
+
+local function normalize(text)
+  return (text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
+end
+
+local function stripOneFinalNewline(text)
+  return (normalize(text):gsub("\n$", "", 1))
+end
+
+local function replaceExactLine(document, target, replacement)
+  local lines = {}
+  local found = false
+
+  for line in (normalize(document) .. "\n"):gmatch("(.-)\n") do
+    if not found and line == target then
+      table.insert(lines, replacement)
+      found = true
+    else
+      table.insert(lines, line)
+    end
+  end
+
+  if not found then return nil end
+  return table.concat(lines, "\n")
+end
+
+local spec = {
   episode = "01",
   title = "Código → sonido",
 
@@ -119,14 +188,7 @@ return Runner.new({
     }},
 
     { name = "07C — Articulación; conservar :pluck", actions = {
-      { type = "replace_line", target = "play :d5", text = "play :d5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :fs5", text = "play :fs5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :a5", text = "play :a5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :b5", text = "play :b5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :a5", text = "play :a5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :fs5", text = "play :fs5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :e5", text = "play :e5, release: 0.2, amp: 0.9" },
-      { type = "replace_line", target = "play :fs5", text = "play :fs5, release: 0.2, amp: 0.9" },
+      { type = "set", text = STEP11_DOCUMENT, atomic = true },
     }},
 
     { name = "08A — Primera decisión generativa", actions = {
@@ -134,6 +196,7 @@ return Runner.new({
         type = "replace_line",
         target = "play :b5, release: 0.2, amp: 0.9",
         text = "play choose([:a5, :b5, :d6]), release: 0.2, amp: 0.9",
+        atomic = true,
       },
     }},
 
@@ -142,9 +205,54 @@ return Runner.new({
         type = "replace_line",
         target = "play :e5, release: 0.2, amp: 0.9",
         text = "play choose([:d5, :e5, :a5]), release: 0.2, amp: 0.9",
+        atomic = true,
       },
     }},
 
     { name = "09 — Pieza completa / mini performance", actions = {} },
   },
-})
+}
+
+local runner = Runner.new(spec)
+local baseEdit = runner.edit
+
+-- EP01-specific reliability override for the historically fragile articulation
+-- and choose edits. The model is updated first, then the entire editor buffer is
+-- replaced in one paste operation. No Shift+Down selection is involved.
+function runner:edit(action, done)
+  if not action.atomic then
+    return baseEdit(self, action, done)
+  end
+
+  local nextDocument
+
+  if action.type == "set" then
+    nextDocument = stripOneFinalNewline(action.text)
+  elseif action.type == "replace_line" then
+    nextDocument = replaceExactLine(
+      self.document,
+      action.target,
+      stripOneFinalNewline(action.text)
+    )
+
+    if not nextDocument then
+      self:cancel("No encontré target atómico: " .. tostring(action.target), true)
+      return
+    end
+  else
+    self:cancel("Acción atómica no soportada: " .. tostring(action.type), true)
+    return
+  end
+
+  self.document = nextDocument
+  self:repairEditorBuffer(function(ok)
+    if not ok then
+      self:cancel("No pude aplicar la edición atómica; usa ⌃⌥⌘R", true)
+      return
+    end
+
+    self:schedule(self.C.settleAfterEdit, done)
+  end)
+end
+
+return runner
