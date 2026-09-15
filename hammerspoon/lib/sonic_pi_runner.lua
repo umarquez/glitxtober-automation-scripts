@@ -1,16 +1,11 @@
 -- Shared Hammerspoon runner for Glitxtober Sonic Pi episodes.
 --
--- Responsibilities:
---   * focus Sonic Pi and its code editor;
---   * type code with conservative Return timing;
---   * apply deterministic incremental edits;
---   * keep an internal text model of the buffer;
---   * statically review every episode specification before binding hotkeys;
---   * reset/stop Sonic Pi safely between takes;
---   * expose one common hotkey set for every Sonic Pi-only episode.
---
--- The module intentionally does not know anything about a specific episode.
--- Episode files only declare metadata and a list of beats/actions.
+-- Reliability invariant:
+--   Sonic Pi is never allowed to Run a buffer that differs structurally from
+--   the runner's internal model. Newlines are inserted with clipboard paste
+--   rather than Return key events, and the full editor buffer is copied back
+--   and verified before every Run. A mismatch triggers one atomic full-buffer
+--   repair + re-verification; if that still fails, the take is cancelled.
 
 local Runner = {}
 Runner.__index = Runner
@@ -23,13 +18,12 @@ local DEFAULTS = {
   charMax = 0.048,
   punctuationExtra = 0.014,
 
-  -- Keystroke timings. Hammerspoon keyStroke delay is expressed in microseconds.
+  -- Keyboard/clipboard timings.
   keyStrokeUs = 50000,
-  returnUs = 180000,
-  newlineMin = 0.30,
-  newlineMax = 0.42,
-  structuralExtra = 0.16,
-  sampleExtra = 0.14,
+  newlinePasteDelay = 0.14,
+  clipboardSettleDelay = 0.10,
+  verifyCopyDelay = 0.16,
+  repairPasteDelay = 0.30,
 
   -- Focus/navigation/run timings.
   appFocusDelay = 0.50,
@@ -74,8 +68,7 @@ local function status(message, duration)
     return _G.GlitxStatus.show(message, duration or DEFAULTS.statusDuration)
   end
 
-  -- Fallback is deliberately console-only so a missing status router never
-  -- contaminates the recording with an unexpected overlay.
+  -- Console-only fallback: never contaminate the recording unexpectedly.
   hs.printf("[Glitxtober] %s", tostring(message))
   return nil
 end
@@ -90,7 +83,7 @@ local function normalize(text)
 end
 
 -- Long bracket literals normally carry one formatting newline before ]=].
--- Remove exactly one final newline, preserving an intentional extra blank line.
+-- Remove exactly one final newline, preserving intentional blank lines.
 local function stripOneFinalNewline(text)
   text = normalize(text)
   return (text:gsub("\n$", "", 1))
@@ -157,20 +150,42 @@ local function insertModel(document, index, text, after)
   return join(out)
 end
 
+-- Compare editor text with the internal model while ignoring indentation added
+-- by Sonic Pi/Tidy. Line boundaries are deliberately preserved, so a dropped
+-- newline such as `sample :bd_haussleep 1` can never compare equal to the
+-- intended two-line model.
+local function canonicalBuffer(text)
+  local lines = linesOf(normalize(text))
+
+  for i, line in ipairs(lines) do
+    line = line:gsub("^[ \t]+", "")
+    line = line:gsub("[ \t]+$", "")
+    lines[i] = line
+  end
+
+  while #lines > 0 and lines[#lines] == "" do
+    table.remove(lines)
+  end
+
+  return join(lines)
+end
+
+Runner.canonicalBuffer = canonicalBuffer
+Runner.buffersMatch = function(actual, expected)
+  return canonicalBuffer(actual) == canonicalBuffer(expected)
+end
+
 local function validateModel(document)
   local lines = linesOf(document)
 
   for i, line in ipairs(lines) do
     local trimmed = line:gsub("^%s+", "")
 
-    -- Regression guard for the original dropped-Return failure observed while
-    -- typing drum code (for example: `sample :bd_haussleep 1`).
+    -- Regression guard for the original dropped-newline failure.
     if trimmed:match("^sample%s+") and trimmed:find("sleep", 1, true) then
       return false, "sample y sleep están en la misma línea"
     end
 
-    -- Top-level live_loops are kept visually separated. This also gives the
-    -- runtime an extra Return boundary when adding a new block on camera.
     if trimmed:match("^live_loop%s+") and i > 1 and lines[i - 1] ~= "" then
       return false, "falta línea en blanco antes de " .. trimmed
     end
@@ -256,8 +271,7 @@ local function applyModelAction(document, action)
   return nil, "acción no implementada: " .. tostring(kind)
 end
 
--- Pure/static review. No Hammerspoon API is needed here, which makes the same
--- episode specification testable in CI and at Hammerspoon load time.
+-- Pure/static review. No Hammerspoon API is needed here.
 function Runner.reviewSpec(spec)
   if type(spec) ~= "table" then
     return nil, "la especificación no es una tabla"
@@ -297,18 +311,12 @@ function Runner.reviewSpec(spec)
           actionErr
         )
       end
-
       document = nextDocument
     end
 
     local modelOk, modelErr = validateModel(document)
     if not modelOk then
-      return nil, string.format(
-        "beat %d (%s): %s",
-        beatIndex,
-        beat.name,
-        modelErr
-      )
+      return nil, string.format("beat %d (%s): %s", beatIndex, beat.name, modelErr)
     end
 
     snapshots[beatIndex] = document
@@ -397,6 +405,11 @@ function Runner:preflight()
     return false
   end
 
+  if not hs.pasteboard then
+    status("hs.pasteboard no está disponible; no ejecutaré sin verificación", 3)
+    return false
+  end
+
   return true
 end
 
@@ -430,16 +443,49 @@ function Runner:focusEditor(done)
   end, gen)
 end
 
+local function captureClipboard()
+  return {
+    hasText = hs.pasteboard.getContents() ~= nil,
+    text = hs.pasteboard.getContents(),
+  }
+end
+
+local function restoreClipboard(snapshot)
+  if snapshot and snapshot.hasText then
+    hs.pasteboard.setContents(snapshot.text or "")
+  else
+    hs.pasteboard.clearContents()
+  end
+end
+
 function Runner:typeText(text, done)
   text = normalize(text)
   local gen, i, n = self.generation, 1, #text
+  local clipboard = captureClipboard()
+
+  local function finish()
+    restoreClipboard(clipboard)
+    done()
+  end
+
+  local function fail(message)
+    restoreClipboard(clipboard)
+    self:cancel(message, true)
+  end
 
   local function nextChar()
-    if gen ~= self.generation then return end
-    if i > n then done(); return end
+    if gen ~= self.generation then
+      restoreClipboard(clipboard)
+      return
+    end
+
+    if i > n then
+      finish()
+      return
+    end
 
     if hs.eventtap.isSecureInputEnabled() then
-      self:cancel("Secure Input activado", true)
+      fail("Secure Input activado")
       return
     end
 
@@ -448,19 +494,16 @@ function Runner:typeText(text, done)
     local delay = rand(self.C.charMin, self.C.charMax)
 
     if ch == "\n" then
-      local previousLine = text:sub(1, i - 2):match("([^\n]*)$") or ""
-      self:key({}, "return", self.C.returnUs)
-
-      delay =
-        delay +
-        (self.C.returnUs / 1000000) +
-        rand(self.C.newlineMin, self.C.newlineMax)
-
-      if previousLine:match("%f[%a]do%s*$") or previousLine:match("^%s*end%s*$") then
-        delay = delay + self.C.structuralExtra
-      elseif previousLine:match("^%s*sample%s+") then
-        delay = delay + self.C.sampleExtra
+      -- Do not synthesize Return. A clipboard newline is an atomic text insert
+      -- and cannot become the literal concatenation `...sample...sleep...`.
+      local ok = hs.pasteboard.setContents("\n")
+      if ok == false then
+        fail("No pude preparar el salto de línea en el portapapeles")
+        return
       end
+
+      self:key({"cmd"}, "v")
+      delay = delay + self.C.newlinePasteDelay
     else
       hs.eventtap.keyStrokes(ch, self.app)
 
@@ -479,7 +522,6 @@ end
 
 function Runner:boundary(which, done)
   local gen = self.generation
-
   self:key({"cmd"}, "a")
   self:schedule(self.C.settleAfterNav, function()
     self:key({}, which == "start" and "left" or "right")
@@ -495,7 +537,6 @@ function Runner:goToLine(lineNumber, done)
 
     local function step()
       if gen ~= self.generation then return end
-
       if remaining <= 0 then
         self:schedule(self.C.settleAfterNav, done, gen)
         return
@@ -512,7 +553,6 @@ end
 
 function Runner:clear(done)
   local gen = self.generation
-
   self:key({"cmd"}, "a")
   self:schedule(self.C.clearDelay, function()
     self:key({}, "delete")
@@ -525,57 +565,47 @@ function Runner:edit(action, done)
 
   if kind == "set" then
     local text = stripOneFinalNewline(action.text)
-
     self:clear(function()
       self:typeText(text, function()
         self.document = text
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
   if kind == "append" then
     local text = stripOneFinalNewline(action.text)
     local prefix = self.document == "" and "" or "\n"
-
     self:boundary("end", function()
       self:typeText(prefix .. text, function()
-        self.document =
-          self.document == "" and text or (self.document .. "\n" .. text)
+        self.document = self.document == "" and text or (self.document .. "\n" .. text)
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
   if kind == "append_block" then
     local text = stripOneFinalNewline(action.text)
     local prefix = self.document == "" and "" or "\n\n"
-
     self:boundary("end", function()
       self:typeText(prefix .. text, function()
-        self.document =
-          self.document == "" and text or (self.document .. "\n\n" .. text)
+        self.document = self.document == "" and text or (self.document .. "\n\n" .. text)
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
   if kind == "prepend" then
     local text = normalize(action.text)
-
     self:boundary("start", function()
       self:typeText(text, function()
         self.document = text .. self.document
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
@@ -587,37 +617,31 @@ function Runner:edit(action, done)
 
   if kind == "insert_before" then
     local text = normalize(action.text)
-
     self:goToLine(line, function()
       self:typeText(text, function()
         self.document = insertModel(self.document, line, text, false)
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
   if kind == "insert_after" then
     local text = normalize(action.text)
-
     self:goToLine(line + 1, function()
       self:typeText(text, function()
         self.document = insertModel(self.document, line, text, true)
         self:schedule(self.C.settleAfterEdit, done)
       end)
     end)
-
     return
   end
 
   if kind == "replace_line" then
     local replacement = stripOneFinalNewline(action.text)
     local gen = self.generation
-
     self:goToLine(line, function()
       self:key({"shift"}, "down")
-
       self:schedule(self.C.settleAfterNav, function()
         self:typeText(replacement .. "\n", function()
           self.document = replaceModelLine(self.document, line, replacement)
@@ -625,21 +649,125 @@ function Runner:edit(action, done)
         end)
       end, gen)
     end)
-
     return
   end
 
   self:cancel("Acción desconocida: " .. tostring(kind), true)
 end
 
-function Runner:tidyRun(done)
+-- Copy the real Sonic Pi editor buffer back to Hammerspoon. The user's text
+-- clipboard is restored immediately afterwards.
+function Runner:readEditorBuffer(done)
+  local gen = self.generation
+  local clipboard = captureClipboard()
+
+  self:key({"cmd"}, "a")
+  self:schedule(self.C.settleAfterNav, function()
+    self:key({"cmd"}, "c")
+    self:schedule(self.C.verifyCopyDelay, function()
+      local actual = hs.pasteboard.getContents()
+      restoreClipboard(clipboard)
+
+      if gen ~= self.generation then return end
+      done(actual or "")
+    end, gen)
+  end, gen)
+end
+
+function Runner:verifyEditorBuffer(done)
+  self:readEditorBuffer(function(actual)
+    if Runner.buffersMatch(actual, self.document) then
+      done(true, actual)
+    else
+      done(false, actual)
+    end
+  end)
+end
+
+-- Atomic recovery path. This is intentionally not the normal recording path;
+-- it only runs if verification detects that simulated typing/navigation and the
+-- editor diverged. The model is pasted as one block, eliminating any possibility
+-- of a dropped individual newline during repair.
+function Runner:repairEditorBuffer(done)
+  local gen = self.generation
+  local clipboard = captureClipboard()
+
+  self:key({"cmd"}, "a")
+  self:schedule(self.C.settleAfterNav, function()
+    local ok = hs.pasteboard.setContents(self.document)
+    if ok == false then
+      restoreClipboard(clipboard)
+      done(false)
+      return
+    end
+
+    self:key({"cmd"}, "v")
+    self:schedule(self.C.repairPasteDelay, function()
+      restoreClipboard(clipboard)
+      if gen ~= self.generation then return end
+      done(true)
+    end, gen)
+  end, gen)
+end
+
+function Runner:verifiedTidyRun(done)
   local gen = self.generation
 
-  self:key({"cmd"}, "m")
-  self:schedule(self.C.tidyDelay, function()
-    self:key({"cmd"}, "r")
-    self:schedule(self.C.runDelay, done, gen)
-  end, gen)
+  local function runOnlyAfterVerified()
+    self:verifyEditorBuffer(function(ok)
+      if gen ~= self.generation then return end
+
+      if not ok then
+        self:cancel(
+          "SEGURIDAD: el buffer aún difiere del modelo después de reparar; NO se ejecutó. Usa ⌃⌥⌘R",
+          true
+        )
+        return
+      end
+
+      self:key({"cmd"}, "r")
+      self:schedule(self.C.runDelay, done, gen)
+    end)
+  end
+
+  local function tidyThenVerify(allowRepair)
+    self:key({"cmd"}, "m")
+    self:schedule(self.C.tidyDelay, function()
+      self:verifyEditorBuffer(function(ok)
+        if gen ~= self.generation then return end
+
+        if ok then
+          self:key({"cmd"}, "r")
+          self:schedule(self.C.runDelay, done, gen)
+          return
+        end
+
+        if not allowRepair then
+          self:cancel(
+            "SEGURIDAD: buffer inconsistente; NO se ejecutó. Usa ⌃⌥⌘R",
+            true
+          )
+          return
+        end
+
+        status("Buffer inconsistente detectado — reparación automática antes de Run", 1.6)
+        self:repairEditorBuffer(function(repaired)
+          if gen ~= self.generation then return end
+          if not repaired then
+            self:cancel("No pude reparar el buffer; NO se ejecutó. Usa ⌃⌥⌘R", true)
+            return
+          end
+
+          -- Tidy the repaired canonical model and verify once more. There is no
+          -- code path from here to Run without a successful second copy-back.
+          self:key({"cmd"}, "m")
+          self:schedule(self.C.tidyDelay, runOnlyAfterVerified, gen)
+        end)
+      end)
+    end, gen)
+  end
+
+  tidyThenVerify(true)
 end
 
 function Runner:runBeat()
@@ -657,14 +785,10 @@ function Runner:runBeat()
   self.generation = self.generation + 1
   local gen = self.generation
 
-  status(
-    string.format("%02d/%02d  %s", self.beat, #self.beats, beat.name),
-    self.C.statusDuration
-  )
+  status(string.format("%02d/%02d  %s", self.beat, #self.beats, beat.name), self.C.statusDuration)
 
   self:focusEditor(function()
     if gen ~= self.generation then return end
-
     local index = 1
 
     local function nextAction()
@@ -678,9 +802,10 @@ function Runner:runBeat()
           return
         end
 
-        self:tidyRun(function()
+        -- Critical safety barrier: never Run without reading the actual editor
+        -- contents back and proving that line structure matches the model.
+        self:verifiedTidyRun(function()
           if gen ~= self.generation then return end
-
           self.busy = false
           self.beat = self.beat + 1
 
@@ -690,7 +815,6 @@ function Runner:runBeat()
             status("Episodio completo ✓", 1.5)
           end
         end)
-
         return
       end
 
@@ -720,16 +844,12 @@ function Runner:resetTake()
   self:focusEditor(function()
     if gen ~= self.generation then return end
 
-    -- Two Stop commands intentionally flush live_loop threads from previous
-    -- takes before the editor is cleared.
     self:key({"cmd"}, "s")
     self:schedule(self.C.stopRepeatDelay, function()
       self:key({"cmd"}, "s")
-
       self:schedule(self.C.stopSettleDelay, function()
         self:clear(function()
           if gen ~= self.generation then return end
-
           self.busy = false
           self.needsReset = false
           status("Runtime limpio — ⌃⌥⌘N para empezar", 1.6)
@@ -741,17 +861,8 @@ end
 
 function Runner:info()
   local beat = self.beats[self.beat]
-
   if beat then
-    status(
-      string.format(
-        "Siguiente: %02d/%02d — %s",
-        self.beat,
-        #self.beats,
-        beat.name
-      ),
-      2
-    )
+    status(string.format("Siguiente: %02d/%02d — %s", self.beat, #self.beats, beat.name), 2)
   else
     status("Episodio completo ✓", 1.5)
   end
@@ -766,12 +877,10 @@ function Runner:testTyping()
 
   self:focusEditor(function()
     if gen ~= self.generation then return end
-
     hs.eventtap.keyStrokes("# Hammerspoon OK", self.app)
     self.busy = false
     self.dirty = true
     self.needsReset = true
-
     status("Prueba enviada — reinicia la toma", 1.5)
   end)
 end
@@ -779,25 +888,13 @@ end
 function Runner:bindHotkeys()
   local mods = {"ctrl", "alt", "cmd"}
 
-  table.insert(self.hotkeys, hs.hotkey.bind(mods, "n", function()
-    self:runBeat()
-  end))
-
-  table.insert(self.hotkeys, hs.hotkey.bind(mods, "r", function()
-    self:resetTake()
-  end))
-
-  table.insert(self.hotkeys, hs.hotkey.bind(mods, "i", function()
-    self:info()
-  end))
-
+  table.insert(self.hotkeys, hs.hotkey.bind(mods, "n", function() self:runBeat() end))
+  table.insert(self.hotkeys, hs.hotkey.bind(mods, "r", function() self:resetTake() end))
+  table.insert(self.hotkeys, hs.hotkey.bind(mods, "i", function() self:info() end))
   table.insert(self.hotkeys, hs.hotkey.bind(mods, "x", function()
     self:cancel("Automatización cancelada — reinicia la toma", true)
   end))
-
-  table.insert(self.hotkeys, hs.hotkey.bind(mods, "t", function()
-    self:testTyping()
-  end))
+  table.insert(self.hotkeys, hs.hotkey.bind(mods, "t", function() self:testTyping() end))
 end
 
 function Runner:destroy()
