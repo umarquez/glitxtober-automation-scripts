@@ -115,9 +115,11 @@ end
 
 ### Snapshot 6 — Bajo sincopado
 
+El bajo usa `:bass_foundation` para separar claramente su función tímbrica del lead.
+
 ```ruby
 live_loop :bass, sync: :melody do
-  use_synth :fm
+  use_synth :bass_foundation
 
   play :d2, release: 0.25, amp: 0.7
   sleep 1.5
@@ -132,7 +134,7 @@ end
 
 ### Snapshot 7 — Elegir el timbre del lead
 
-Probar `:beep`, `:prophet` y `:pluck`; el estado final usa `:pluck`.
+Probar primero `:fm` y después `:pluck`; a partir de ahí se conserva `:pluck` durante la articulación y las decisiones generativas.
 
 ```ruby
 live_loop :melody do
@@ -231,7 +233,7 @@ live_loop :hats, sync: :melody do
 end
 
 live_loop :bass, sync: :melody do
-  use_synth :fm
+  use_synth :bass_foundation
 
   play :d2, release: 0.25, amp: 0.7
   sleep 1.5
