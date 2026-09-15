@@ -6,12 +6,13 @@
 --
 -- Structural-first rule:
 --   whenever a block is introduced, its closing `end` is written before any
---   body content is inserted. Nested blocks follow the same rule.
+--   body content is inserted. Body content is then typed immediately after the
+--   opener, before the already-existing `end`. No Run happens between those
+--   structural actions; Run occurs only after the whole beat is complete.
 --
--- Late-edit rule:
---   timbre and articulation changes modify only the characters that actually
---   change. We do not replace complete lines for Step 10+, and every local edit
---   is verified against the real Sonic Pi buffer before the next edit begins.
+-- Local-edit rule:
+--   late edits locate their exact current text through Sonic Pi's Find UI.
+--   We do not navigate by counting visual cursor movements for those edits.
 
 local ROOT =
   rawget(_G, "GLITX_ROOT") or
@@ -68,15 +69,6 @@ local function stripOneFinalNewline(text)
   return (normalize(text):gsub("\n$", "", 1))
 end
 
-local function findExactLine(document, target)
-  local index = 0
-  for line in (normalize(document) .. "\n"):gmatch("(.-)\n") do
-    index = index + 1
-    if line == target then return index end
-  end
-  return nil
-end
-
 local function replaceExactLine(document, target, replacement)
   local lines = {}
   local found = false
@@ -92,6 +84,14 @@ local function replaceExactLine(document, target, replacement)
 
   if not found then return nil end
   return table.concat(lines, "\n")
+end
+
+local function insertAfterExactLine(document, target, text)
+  return replaceExactLine(
+    document,
+    target,
+    target .. "\n" .. stripOneFinalNewline(text)
+  )
 end
 
 local function articulated(target)
@@ -113,15 +113,22 @@ local function tokenChange(target, replacement, from, to)
   }
 end
 
+local function insideBlock(opener, text)
+  return {
+    type = "insert_after",
+    target = opener,
+    text = text,
+    typed_inside = true,
+  }
+end
+
 local spec = {
   episode = "01",
   title = "Código → sonido",
 
-  -- The editor is more reliable when navigation is deliberately slower than
-  -- character typing. This matters for local edits later in the episode.
   config = {
     navDelay = 0.10,
-    settleAfterNav = 0.14,
+    settleAfterNav = 0.16,
     keyStrokeUs = 70000,
   },
 
@@ -138,50 +145,45 @@ local spec = {
       { type = "prepend", text = "use_bpm 120\n\n" },
     }},
 
-    -- The closing `end` is written first. Only after it exists do we type the
-    -- opening live_loop around the already demonstrated melody.
+    -- Close first, then add the opener around the already-demonstrated melody.
     { name = "04 — Repetir sin copiar", actions = {
       { type = "append", text = "end" },
       { type = "insert_before", target = "play :d5", text = "live_loop :melody do\n" },
     }},
 
-    -- Structural-first: outer shell -> nested shell -> nested body.
+    -- Shell first. Then return to each opener and type inside the existing end.
     { name = "05A — Añadir kick", actions = {
       { type = "append_block", text = "live_loop :kick, sync: :melody do\nend" },
-      { type = "insert_after", target = "live_loop :kick, sync: :melody do", text = "4.times do\nend\n" },
-      { type = "insert_after", target = "4.times do", text = "sample :bd_haus\nsleep 1\n" },
+      insideBlock("live_loop :kick, sync: :melody do", "4.times do\nend"),
+      insideBlock("4.times do", "sample :bd_haus\nsleep 1"),
     }},
 
-    -- Structural-first: closed live_loop shell, then its body.
     { name = "05B — Añadir clap / snare", actions = {
       { type = "append_block", text = "live_loop :snare, sync: :melody do\nend" },
-      { type = "insert_after", target = "live_loop :snare, sync: :melody do", text = SNARE_BODY },
+      insideBlock("live_loop :snare, sync: :melody do", SNARE_BODY),
     }},
 
-    -- Structural-first: outer shell -> nested shell -> nested body.
     { name = "05C — Añadir hi-hat", actions = {
       { type = "append_block", text = "live_loop :hats, sync: :melody do\nend" },
-      { type = "insert_after", target = "live_loop :hats, sync: :melody do", text = "8.times do\nend\n" },
-      { type = "insert_after", target = "8.times do", text = "sample :drum_cymbal_closed, amp: 0.35\nsleep 0.5\n" },
+      insideBlock("live_loop :hats, sync: :melody do", "8.times do\nend"),
+      insideBlock("8.times do", "sample :drum_cymbal_closed, amp: 0.35\nsleep 0.5"),
     }},
 
-    -- Structural-first: closed live_loop shell, then synth + notes.
     { name = "06 — Bajo: :bass_foundation", actions = {
       { type = "append_block", text = "live_loop :bass, sync: :melody do\nend" },
-      { type = "insert_after", target = "live_loop :bass, sync: :melody do", text = BASS_BODY },
+      insideBlock("live_loop :bass, sync: :melody do", BASS_BODY),
     }},
 
     { name = "07A — Lead: :fm", actions = {
-      { type = "insert_after", target = "live_loop :melody do", text = "use_synth :fm\n\n" },
+      insideBlock("live_loop :melody do", "use_synth :fm\n"),
     }},
 
-    -- Only `:fm` is selected and typed over; the rest of the line is untouched.
+    -- Only :fm is selected and typed over.
     { name = "07B — Lead: :pluck", actions = {
       tokenChange("use_synth :fm", "use_synth :pluck", ":fm", ":pluck"),
     }},
 
-    -- Each suffix is typed at the end of exactly one play line and verified
-    -- before moving to the next one. No full-line selection is used.
+    -- Each suffix is typed after finding the exact still-unmodified play line.
     { name = "07C — Articulación; conservar :pluck", actions = {
       articulated("play :d5"),
       articulated("play :fs5"),
@@ -193,7 +195,6 @@ local spec = {
       articulated("play :fs5"),
     }},
 
-    -- Only the note token is replaced; release/amp and the newline remain intact.
     { name = "08A — Primera decisión generativa", actions = {
       tokenChange(
         "play :b5, release: 0.2, amp: 0.9",
@@ -235,10 +236,40 @@ local function moveRepeated(runner, mods, key, count, done)
   step()
 end
 
+-- Find exact visible text in Sonic Pi and leave the editor selection on that
+-- match. This avoids relying on a long chain of Up/Down cursor events.
+local function findEditorText(runner, text, done)
+  local gen = runner.generation
+
+  runner:key({"cmd"}, "f")
+  runner:schedule(runner.C.settleAfterNav, function()
+    if gen ~= runner.generation then return end
+
+    runner:key({"cmd"}, "a")
+    runner:schedule(runner.C.settleAfterNav, function()
+      if gen ~= runner.generation then return end
+
+      hs.eventtap.keyStrokes(text, runner.app)
+      runner:schedule(runner.C.settleAfterEdit, function()
+        if gen ~= runner.generation then return end
+
+        runner:key({}, "return")
+        runner:schedule(runner.C.settleAfterNav, function()
+          if gen ~= runner.generation then return end
+
+          runner:key({}, "escape")
+          runner:schedule(runner.C.settleAfterNav, done, gen)
+        end, gen)
+      end, gen)
+    end, gen)
+  end, gen)
+end
+
 local function verifyLocalEdit(runner, done)
   local gen = runner.generation
   runner:schedule(runner.C.settleAfterEdit, function()
     if gen ~= runner.generation then return end
+
     runner:verifyEditorBuffer(function(ok)
       if gen ~= runner.generation then return end
       if not ok then
@@ -253,16 +284,34 @@ local function verifyLocalEdit(runner, done)
   end, gen)
 end
 
--- EP01-specific editor strategies for the fragile late steps. These retain the
--- visible typing effect but never select an entire line.
 function runner:edit(action, done)
-  if action.typed_suffix then
-    local line = findExactLine(self.document, action.target)
-    if not line then
-      self:cancel("No encontré target para articulación: " .. tostring(action.target), true)
+  if action.typed_inside then
+    local body = stripOneFinalNewline(action.text)
+    local nextDocument = insertAfterExactLine(self.document, action.target, body)
+    if not nextDocument then
+      self:cancel("No encontré opener para escribir dentro: " .. tostring(action.target), true)
       return
     end
 
+    local gen = self.generation
+    findEditorText(self, action.target, function()
+      if gen ~= self.generation then return end
+
+      -- Find leaves the exact opener selected. Collapse at its end, then type a
+      -- newline and the body. The existing `end` remains below throughout.
+      self:key({}, "right")
+      self:schedule(self.C.settleAfterNav, function()
+        self:typeText("\n" .. body, function()
+          if gen ~= self.generation then return end
+          self.document = nextDocument
+          verifyLocalEdit(self, done)
+        end)
+      end, gen)
+    end)
+    return
+  end
+
+  if action.typed_suffix then
     local expected = action.target .. action.typed_suffix
     if expected ~= stripOneFinalNewline(action.text) then
       self:cancel("La articulación declarada no coincide con el modelo", true)
@@ -271,15 +320,16 @@ function runner:edit(action, done)
 
     local nextDocument = replaceExactLine(self.document, action.target, expected)
     if not nextDocument then
-      self:cancel("No pude actualizar el modelo de articulación", true)
+      self:cancel("No encontré target para articulación: " .. tostring(action.target), true)
       return
     end
 
     local gen = self.generation
-    self:goToLine(line, function()
+    findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      self:key({"cmd"}, "right")
+      -- Collapse the exact match at its right edge and append only the suffix.
+      self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
         self:typeText(action.typed_suffix, function()
           if gen ~= self.generation then return end
@@ -292,12 +342,6 @@ function runner:edit(action, done)
   end
 
   if action.token_from then
-    local line = findExactLine(self.document, action.target)
-    if not line then
-      self:cancel("No encontré target para cambio local: " .. tostring(action.target), true)
-      return
-    end
-
     local startAt, endAt = action.target:find(action.token_from, 1, true)
     if not startAt then
       self:cancel("El token esperado no existe en la línea target", true)
@@ -321,19 +365,19 @@ function runner:edit(action, done)
 
     local nextDocument = replaceExactLine(self.document, action.target, expected)
     if not nextDocument then
-      self:cancel("No pude actualizar el modelo del cambio local", true)
+      self:cancel("No encontré target para cambio local: " .. tostring(action.target), true)
       return
     end
 
     local charsAfter = #action.target - endAt
     local gen = self.generation
 
-    self:goToLine(line, function()
+    findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Start from the physical end of the line. Moving left by the exact
-      -- number of trailing characters is independent of Tidy indentation.
-      self:key({"cmd"}, "right")
+      -- Collapse the full-line match at its right edge, walk back only over the
+      -- known trailing characters, then select and replace the token itself.
+      self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
         moveRepeated(self, {}, "left", charsAfter, function()
           moveRepeated(self, {"shift"}, "left", #action.token_from, function()
