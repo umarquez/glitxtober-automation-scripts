@@ -6,8 +6,8 @@
 --
 -- Structural-first rule:
 --   write the block opener first, then its closing `end`, before inserting body
---   content. When body content is added, reuse the newline that already exists
---   between opener and `end`; never create an extra blank line accidentally.
+--   content. When body content is added, move explicitly to column 1 of the
+--   existing `end` line, type the body, then one newline so `end` stays intact.
 --
 -- Local-edit rule:
 --   late edits locate their exact current text through Sonic Pi's Find UI.
@@ -158,7 +158,7 @@ local spec = {
     }},
 
     -- Shell first: the append visibly types opener then end. Body insertion
-    -- later reuses the shell's existing newline and preserves its closing end.
+    -- later returns to column 1 of the existing end line and types before it.
     { name = "05A — Añadir kick", actions = {
       { type = "append_block", text = "live_loop :kick, sync: :melody do\nend" },
       insideBlock("live_loop :kick, sync: :melody do", "4.times do\nend"),
@@ -300,19 +300,22 @@ function runner:edit(action, done)
     findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Find leaves the opener selected. Collapse at its right edge, then cross
-      -- the newline that already belongs to the shell. We are now at the start
-      -- of the existing `end` line. Type the body plus exactly one trailing
-      -- newline, so that existing `end` remains on its own line.
+      -- Find leaves the opener selected. Collapse the selection at its right
+      -- edge, move to the next visual line, then force column 1. This avoids
+      -- depending on how Qt interprets a Right-arrow across the line boundary.
+      -- The caret is now immediately before the existing `end`.
       self:key({}, "right")
       self:schedule(self.C.settleAfterNav, function()
-        self:key({}, "right")
+        self:key({}, "down")
         self:schedule(self.C.settleAfterNav, function()
-          self:typeText(body .. "\n", function()
-            if gen ~= self.generation then return end
-            self.document = nextDocument
-            verifyLocalEdit(self, done)
-          end)
+          self:key({"cmd"}, "left")
+          self:schedule(self.C.settleAfterNav, function()
+            self:typeText(body .. "\n", function()
+              if gen ~= self.generation then return end
+              self.document = nextDocument
+              verifyLocalEdit(self, done)
+            end)
+          end, gen)
         end, gen)
       end, gen)
     end)
