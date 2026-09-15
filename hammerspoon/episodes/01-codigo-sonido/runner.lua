@@ -6,8 +6,9 @@
 --
 -- Structural-first rule:
 --   write the block opener first, then its closing `end`, before inserting body
---   content. When body content is added, move explicitly to column 1 of the
---   existing `end` line, type the body, then one newline so `end` stays intact.
+--   content. Nested body insertion uses the shared line-based editor path: the
+--   caret is placed at the beginning of the existing `end` line and the body is
+--   typed before it, always ending in exactly one newline.
 --
 -- Local-edit rule:
 --   late edits locate their exact current text through Sonic Pi's Find UI.
@@ -85,11 +86,11 @@ local function replaceExactLine(document, target, replacement)
   return table.concat(lines, "\n")
 end
 
-local function insertAfterExactLine(document, target, text)
+local function insertBeforeExactLine(document, target, text)
   return replaceExactLine(
     document,
     target,
-    target .. "\n" .. stripOneFinalNewline(text)
+    stripOneFinalNewline(text) .. "\n" .. target
   )
 end
 
@@ -113,11 +114,13 @@ local function tokenChange(target, replacement, from, to)
 end
 
 local function insideBlock(opener, text)
+  local body = stripOneFinalNewline(text)
   return {
     type = "insert_after",
     target = opener,
-    text = text,
-    typed_inside = true,
+    -- The shared insert_after path starts at the next line. The final newline
+    -- is intentional: it leaves the already-existing `end` on its own line.
+    text = body .. "\n",
   }
 end
 
@@ -126,8 +129,7 @@ local spec = {
   title = "Código → sonido",
 
   config = {
-    -- Deliberately slower and more varied than the shared defaults so the
-    -- on-camera typing reads as human rather than machine-gunned text.
+    -- Slow, irregular cadence for a more human on-camera typing feel.
     charMin = 0.045,
     charMax = 0.105,
     punctuationExtra = 0.025,
@@ -150,15 +152,20 @@ local spec = {
       { type = "prepend", text = "use_bpm 120\n\n" },
     }},
 
-    -- Visible order: opener first, closing end second. Run only happens after
-    -- both actions have completed, so the temporary open block is never run.
+    -- Camera sequence: create a blank line above the first play, type the
+    -- opener into that blank line, then append the closing end. Nothing runs
+    -- until the complete beat is structurally closed.
     { name = "04 — Repetir sin copiar", actions = {
-      { type = "insert_before", target = "play :d5", text = "live_loop :melody do\n" },
+      {
+        type = "insert_before",
+        target = "play :d5",
+        text = "live_loop :melody do\n",
+        typed_wrap_opener = true,
+      },
       { type = "append", text = "end" },
     }},
 
-    -- Shell first: the append visibly types opener then end. Body insertion
-    -- later returns to column 1 of the existing end line and types before it.
+    -- Shell first, then nested shell, then nested body.
     { name = "05A — Añadir kick", actions = {
       { type = "append_block", text = "live_loop :kick, sync: :melody do\nend" },
       insideBlock("live_loop :kick, sync: :melody do", "4.times do\nend"),
@@ -288,11 +295,11 @@ local function verifyLocalEdit(runner, done)
 end
 
 function runner:edit(action, done)
-  if action.typed_inside then
-    local body = stripOneFinalNewline(action.text)
-    local nextDocument = insertAfterExactLine(self.document, action.target, body)
+  if action.typed_wrap_opener then
+    local opener = stripOneFinalNewline(action.text)
+    local nextDocument = insertBeforeExactLine(self.document, action.target, opener)
     if not nextDocument then
-      self:cancel("No encontré opener para escribir dentro: " .. tostring(action.target), true)
+      self:cancel("No encontré target para envolver: " .. tostring(action.target), true)
       return
     end
 
@@ -300,23 +307,25 @@ function runner:edit(action, done)
     findEditorText(self, action.target, function()
       if gen ~= self.generation then return end
 
-      -- Find leaves the opener selected. Collapse the selection at its right
-      -- edge, move to the next visual line, then force column 1. This avoids
-      -- depending on how Qt interprets a Right-arrow across the line boundary.
-      -- The caret is now immediately before the existing `end`.
-      self:key({}, "right")
+      -- Collapse at the left edge of the selected first play. First create the
+      -- blank line visibly; then move up into it and type the live_loop opener.
+      self:key({}, "left")
       self:schedule(self.C.settleAfterNav, function()
-        self:key({}, "down")
-        self:schedule(self.C.settleAfterNav, function()
-          self:key({"cmd"}, "left")
+        self:typeText("\n", function()
+          if gen ~= self.generation then return end
+
+          self:key({}, "up")
           self:schedule(self.C.settleAfterNav, function()
-            self:typeText(body .. "\n", function()
-              if gen ~= self.generation then return end
-              self.document = nextDocument
-              verifyLocalEdit(self, done)
-            end)
+            self:key({"cmd"}, "left")
+            self:schedule(self.C.settleAfterNav, function()
+              self:typeText(opener, function()
+                if gen ~= self.generation then return end
+                self.document = nextDocument
+                verifyLocalEdit(self, done)
+              end)
+            end, gen)
           end, gen)
-        end, gen)
+        end)
       end, gen)
     end)
     return
