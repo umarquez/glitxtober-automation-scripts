@@ -59,7 +59,7 @@ end
 
 local BASS = [=[
 live_loop :bass, sync: :melody do
-use_synth :fm
+use_synth :bass_foundation
 
 play :d2, release: 0.25, amp: 0.7
 sleep 1.5
@@ -106,20 +106,19 @@ return Runner.new({
       { type = "append_block", text = HATS },
     }},
 
-    { name = "06 — Bajo sincopado", actions = {
+    { name = "06 — Bajo: :bass_foundation", actions = {
       { type = "append_block", text = BASS },
     }},
 
-    { name = "07A — Lead: :beep", actions = {
-      { type = "insert_after", target = "live_loop :melody do", text = "use_synth :beep\n\n" },
+    { name = "07A — Lead: :fm", actions = {
+      { type = "insert_after", target = "live_loop :melody do", text = "use_synth :fm\n\n" },
     }},
 
-    { name = "07B — Lead: :prophet", actions = {
-      { type = "replace_line", target = "use_synth :beep", text = "use_synth :prophet" },
+    { name = "07B — Lead: :pluck", actions = {
+      { type = "replace_line", target = "use_synth :fm", text = "use_synth :pluck" },
     }},
 
-    { name = "07C — Lead: :pluck + articulación", actions = {
-      { type = "replace_line", target = "use_synth :prophet", text = "use_synth :pluck" },
+    { name = "07C — Articulación; conservar :pluck", actions = {
       { type = "replace_line", target = "play :d5", text = "play :d5, release: 0.2, amp: 0.9" },
       { type = "replace_line", target = "play :fs5", text = "play :fs5, release: 0.2, amp: 0.9" },
       { type = "replace_line", target = "play :a5", text = "play :a5, release: 0.2, amp: 0.9" },
